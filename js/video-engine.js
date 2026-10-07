@@ -47,6 +47,7 @@
       if (typeof trimOut === 'number' && this.currentTime >= trimOut) {
         this.pause();
         this.currentTime = trimIn;
+        this._emit('boundaryReached', { trimIn, trimOut });
         return true;
       }
       return false;

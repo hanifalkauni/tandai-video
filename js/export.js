@@ -165,15 +165,29 @@
      Video Render & Export Engine (Deterministic Client-Side Render)
      -------------------------------------------------------------------------- */
   TV.exportVideo = async function (projectSession, clip, videoElement, options = {}, onProgress = () => {}) {
-    const tStart = typeof clip.trimIn === 'number' ? clip.trimIn : 0;
-    const tEnd = typeof clip.trimOut === 'number' ? clip.trimOut : clip.duration;
-    const totalDuration = Math.max(0.1, tEnd - tStart);
-    const targetFps = options.fps || clip.fps || 30;
-    const frameDuration = 1 / targetFps;
-    const totalFrames = Math.ceil(totalDuration * targetFps);
+    const clipsToRender = (options.clips && options.clips.length)
+      ? options.clips
+      : (projectSession && projectSession.clips && projectSession.clips.length > 0)
+        ? projectSession.clips
+        : [clip];
 
-    const width = clip.width || videoElement.videoWidth || 1920;
-    const height = clip.height || videoElement.videoHeight || 1080;
+    const refClip = clipsToRender[0] || clip;
+    const targetFps = options.fps || (refClip ? refClip.fps : 30) || 30;
+    const frameDuration = 1 / targetFps;
+
+    // Calculate total frames and segments info
+    const segInfo = clipsToRender.map((c) => {
+      const s = typeof c.trimIn === 'number' ? c.trimIn : 0;
+      const e = typeof c.trimOut === 'number' && c.trimOut > 0 ? c.trimOut : (c.duration || 0);
+      const dur = Math.max(0.1, e - s);
+      const frames = Math.max(1, Math.ceil(dur * targetFps));
+      return { clip: c, start: s, end: e, duration: dur, frames };
+    });
+
+    const totalFrames = segInfo.reduce((acc, curr) => acc + curr.frames, 0);
+
+    const width = refClip.width || videoElement.videoWidth || 1920;
+    const height = refClip.height || videoElement.videoHeight || 1080;
 
     // Create offscreen canvas for rendering
     const renderCanvas = document.createElement('canvas');
@@ -227,6 +241,7 @@
       // Deterministic frame stepping loop
       videoElement.pause();
       const initialTime = videoElement.currentTime;
+      const initialSrc = videoElement.src;
 
       const seekVideo = (time) => {
         return new Promise((res) => {
@@ -239,32 +254,61 @@
         });
       };
 
+      const useSource = (url) => new Promise((res) => {
+        if (!url || videoElement.src === url) return res();
+        const onLoaded = () => {
+          videoElement.removeEventListener('loadeddata', onLoaded);
+          res();
+        };
+        videoElement.addEventListener('loadeddata', onLoaded);
+        videoElement.src = url;
+      });
+
+      const restore = async () => {
+        try {
+          if (videoElement.src !== initialSrc) {
+            await useSource(initialSrc);
+          }
+          videoElement.currentTime = initialTime;
+        } catch (e) {}
+      };
+
       try {
-        for (let i = 0; i < totalFrames; i++) {
-          const currentTime = tStart + i * frameDuration;
-          await seekVideo(currentTime);
+        let done = 0;
+        for (let k = 0; k < segInfo.length; k++) {
+          const seg = segInfo[k];
+          if (seg.clip.blobUrl) {
+            await useSource(seg.clip.blobUrl);
+          }
 
-          // Draw full composite frame: base video + annotations + watermark
-          renderer.renderFrame({
-            clip,
-            currentTime,
-            selectedAnnotationId: null,
-            watermarkConfig: projectSession.watermark,
-            drawBaseVideo: true
-          });
+          for (let i = 0; i < seg.frames; i++) {
+            const currentTime = seg.start + i * frameDuration;
+            await seekVideo(currentTime);
 
-          const percent = Math.min(99, Math.round(((i + 1) / totalFrames) * 100));
-          onProgress(percent, `Rendering frame ${i + 1}/${totalFrames} (${percent}%)`);
+            // Draw full composite frame: base video + annotations + watermark
+            renderer.renderFrame({
+              clip: seg.clip,
+              currentTime,
+              selectedAnnotationId: null,
+              watermarkConfig: projectSession?.watermark,
+              drawBaseVideo: true
+            });
 
-          // Yield to browser thread for smooth progress bar update
-          await new Promise((r) => setTimeout(r, 10));
+            done++;
+            const percent = Math.min(99, Math.round((done / totalFrames) * 100));
+            const segLabel = segInfo.length > 1 ? ` [bagian ${k + 1}/${segInfo.length}]` : '';
+            onProgress(percent, `Rendering frame ${done}/${totalFrames} (${percent}%)${segLabel}`);
+
+            // Yield to browser thread for smooth progress bar update
+            await new Promise((r) => setTimeout(r, 6));
+          }
         }
 
-        // Restore initial playback position
-        videoElement.currentTime = initialTime;
+        // Restore initial playback position and source
+        await restore();
         recorder.stop();
       } catch (err) {
-        videoElement.currentTime = initialTime;
+        await restore();
         recorder.stop();
         reject(err);
       }

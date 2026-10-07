@@ -174,6 +174,17 @@
         this._saveDraftToStorage();
       });
 
+      this.videoEngine.on('boundaryReached', () => {
+        // Continuous playback: if there is a next clip in session, transition seamlessly
+        const nextIndex = this.session.activeClipIndex + 1;
+        if (nextIndex < this.session.clips.length) {
+          this.switchClip(nextIndex);
+          setTimeout(() => {
+            this.videoEngine.play();
+          }, 60);
+        }
+      });
+
       this.timeline.on('clipSwitch', ({ index }) => {
         this.switchClip(index);
       });
@@ -222,6 +233,7 @@
       document.getElementById('shortcutsBtn')?.addEventListener('click', () => this.openShortcutsModal());
       document.getElementById('themeToggleBtn')?.addEventListener('click', () => this.toggleTheme());
       document.getElementById('splitClipBtn')?.addEventListener('click', () => this.splitAtPlayhead());
+      document.getElementById('rippleCutBtn')?.addEventListener('click', () => this.openRippleCutModal());
       this._dom.zoomIndicator?.addEventListener('click', () => this._fitViewportToContainer());
     }
 
@@ -1325,6 +1337,9 @@
           this.redo();
         } else if (key === 'delete' || key === 'backspace') {
           this.deleteSelectedAnnotation();
+        } else if (key === 'x') {
+          e.preventDefault();
+          this.openRippleCutModal();
         } else if (key === 'v') this.setTool('select');
         else if (key === 'h') this.setTool('hand');
         else if (key === 'r') this.setTool('rectangle');
@@ -1633,6 +1648,27 @@
         this._executeExport();
       });
 
+      // Ripple Cut Modal Actions
+      document.getElementById('executeRippleCutBtn')?.addEventListener('click', () => this.executeRippleCut());
+      document.getElementById('rippleCutSetStartPlayhead')?.addEventListener('click', () => {
+        const cur = this.videoEngine.currentTime;
+        const inp = document.getElementById('rippleCutStartInput');
+        if (inp) {
+          inp.value = TV.VideoEngine.formatDuration(cur);
+          this._updateRippleCutSummary();
+        }
+      });
+      document.getElementById('rippleCutSetEndPlayhead')?.addEventListener('click', () => {
+        const cur = this.videoEngine.currentTime;
+        const inp = document.getElementById('rippleCutEndInput');
+        if (inp) {
+          inp.value = TV.VideoEngine.formatDuration(cur);
+          this._updateRippleCutSummary();
+        }
+      });
+      document.getElementById('rippleCutStartInput')?.addEventListener('input', () => this._updateRippleCutSummary());
+      document.getElementById('rippleCutEndInput')?.addEventListener('input', () => this._updateRippleCutSummary());
+
       // Project JSON Import/Export
       document.getElementById('exportJsonBtn')?.addEventListener('click', () => {
         const jsonStr = JSON.stringify(this.session.toJSON(), null, 2);
@@ -1728,6 +1764,164 @@
 
     openShortcutsModal() {
       this._dom.shortcutsModal.classList.add('active');
+    }
+
+    openRippleCutModal() {
+      const clip = this.session.getActiveClip();
+      if (!clip) {
+        this.showToast('Muat video terlebih dahulu!', 'warning');
+        return;
+      }
+      const curT = this.videoEngine.currentTime;
+      const tStart = typeof clip.trimIn === 'number' ? clip.trimIn : 0;
+      const tEnd = typeof clip.trimOut === 'number' && clip.trimOut > 0 ? clip.trimOut : clip.duration;
+
+      // Suggest default cut range based on current playhead
+      let defaultStart = curT;
+      if (defaultStart < tStart + 0.1 || defaultStart >= tEnd - 0.5) {
+        defaultStart = tStart + Math.max(0.5, (tEnd - tStart) * 0.3);
+      }
+      let defaultEnd = Math.min(tEnd - 0.1, defaultStart + 5.0);
+
+      const startInput = document.getElementById('rippleCutStartInput');
+      const endInput = document.getElementById('rippleCutEndInput');
+      if (startInput) startInput.value = TV.VideoEngine.formatDuration(defaultStart);
+      if (endInput) endInput.value = TV.VideoEngine.formatDuration(defaultEnd);
+
+      this._updateRippleCutSummary();
+      document.getElementById('rippleCutModal')?.classList.add('active');
+    }
+
+    _updateRippleCutSummary() {
+      const clip = this.session.getActiveClip();
+      if (!clip) return;
+      const startInput = document.getElementById('rippleCutStartInput');
+      const endInput = document.getElementById('rippleCutEndInput');
+      const summaryEl = document.getElementById('rippleCutSummary');
+      if (!summaryEl || !startInput || !endInput) return;
+
+      const cStart = TV.VideoEngine.parseTimeString(startInput.value);
+      const cEnd = TV.VideoEngine.parseTimeString(endInput.value);
+      const tStart = typeof clip.trimIn === 'number' ? clip.trimIn : 0;
+      const tEnd = typeof clip.trimOut === 'number' && clip.trimOut > 0 ? clip.trimOut : clip.duration;
+
+      if (cStart === null || cEnd === null || cStart < tStart || cEnd > tEnd || cEnd <= cStart) {
+        summaryEl.innerHTML = `<span style="color:var(--danger, #ef4444);">Rentang tidak valid: pastikan waktu mulai lebih kecil dari waktu selesai, dan berada di dalam batas klip saat ini (${TV.VideoEngine.formatDuration(tStart)} – ${TV.VideoEngine.formatDuration(tEnd)}).</span>`;
+        return;
+      }
+
+      const cutDur = cEnd - cStart;
+      const part1Dur = cStart - tStart;
+      const part2Dur = tEnd - cEnd;
+      const totalRemaining = part1Dur + part2Dur;
+
+      summaryEl.innerHTML = `
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <div><strong style="color:var(--danger, #ef4444);">✂️ Dibuang:</strong> ${TV.VideoEngine.formatDuration(cStart)} s/d ${TV.VideoEngine.formatDuration(cEnd)} <span style="color:var(--text-muted);">(Durasi dibuang: ${TV.VideoEngine.formatDuration(cutDur)})</span></div>
+          <div><strong style="color:var(--brand, #10b981);">▶️ Hasil tersambung:</strong> Bagian 1 (${TV.VideoEngine.formatDuration(tStart)} – ${TV.VideoEngine.formatDuration(cStart)}) + Bagian 2 (${TV.VideoEngine.formatDuration(cEnd)} – ${TV.VideoEngine.formatDuration(tEnd)})</div>
+          <div style="font-weight:700; color:var(--text-primary); margin-top:2px;">Total durasi akhir: ${TV.VideoEngine.formatDuration(totalRemaining)}</div>
+        </div>
+      `;
+    }
+
+    executeRippleCut() {
+      const clipA = this.session.getActiveClip();
+      if (!clipA) return;
+
+      const startInput = document.getElementById('rippleCutStartInput');
+      const endInput = document.getElementById('rippleCutEndInput');
+      const cutStart = TV.VideoEngine.parseTimeString(startInput.value);
+      const cutEnd = TV.VideoEngine.parseTimeString(endInput.value);
+
+      const tStart = typeof clipA.trimIn === 'number' ? clipA.trimIn : 0;
+      const tEnd = typeof clipA.trimOut === 'number' && clipA.trimOut > 0 ? clipA.trimOut : clipA.duration;
+
+      if (cutStart === null || cutEnd === null) {
+        this.showToast('Format waktu tidak valid!', 'error');
+        return;
+      }
+      if (cutStart <= tStart + 0.05) {
+        this.showToast(`Waktu mulai harus lebih dari batas awal klip (${TV.VideoEngine.formatDuration(tStart)})`, 'warning');
+        return;
+      }
+      if (cutEnd >= tEnd - 0.05) {
+        this.showToast(`Waktu selesai harus kurang dari batas akhir klip (${TV.VideoEngine.formatDuration(tEnd)})`, 'warning');
+        return;
+      }
+      if (cutEnd - cutStart < 0.1) {
+        this.showToast('Rentang yang dibuang minimal 0.1 detik!', 'warning');
+        return;
+      }
+
+      const origTrimOut = tEnd;
+      const baseName = (clipA.name || 'Video').replace(/\s*\(Bagian\s*\d+\)/i, '').replace(/\s*\(Part\s*\d+\)/i, '');
+      const curIndex = this.session.clips.indexOf(clipA);
+
+      // Distribute annotations:
+      // Part 1 gets annotations before cutStart
+      // Part 2 gets annotations after cutEnd
+      // Annotations completely inside [cutStart, cutEnd] are discarded!
+      const annotationsForA = [];
+      const annotationsForB = [];
+
+      clipA.annotations.forEach((ann) => {
+        if (ann.tEnd <= cutStart) {
+          annotationsForA.push(ann);
+        } else if (ann.tStart >= cutEnd) {
+          annotationsForB.push(ann);
+        } else {
+          // Crosses boundaries
+          if (ann.tStart < cutStart) {
+            const partA = ann.clone();
+            partA.tEnd = cutStart;
+            annotationsForA.push(partA);
+          }
+          if (ann.tEnd > cutEnd) {
+            const partB = ann.clone();
+            partB.tStart = cutEnd;
+            annotationsForB.push(partB);
+          }
+        }
+      });
+
+      // Update Part 1 (clipA)
+      clipA.name = `${baseName} (Bagian 1)`;
+      clipA.trimOut = cutStart;
+      clipA.annotations = annotationsForA;
+      clipA.saveHistorySnapshot();
+
+      // Create Part 2 (clipB)
+      const partNum = curIndex + 2;
+      const clipB = new TV.VideoClip({
+        name: `${baseName} (Bagian ${partNum})`,
+        file: clipA.file,
+        blobUrl: clipA.blobUrl,
+        duration: clipA.duration,
+        width: clipA.width,
+        height: clipA.height,
+        fps: clipA.fps,
+        trimIn: cutEnd,
+        trimOut: origTrimOut,
+        annotations: annotationsForB
+      });
+
+      this.session.insertClip(curIndex + 1, clipB);
+      this.session.activeClipIndex = curIndex; // stay at Part 1 so user can preview from start
+
+      document.getElementById('rippleCutModal')?.classList.remove('active');
+
+      this.videoEngine.setPlaybackBounds(clipA.trimIn, clipA.trimOut);
+      this.videoEngine.currentTime = clipA.trimIn;
+
+      this.timeline.render({
+        projectSession: this.session,
+        currentTime: clipA.trimIn,
+        selectedAnnotationId: null
+      });
+      this._updateInspector();
+      this._saveDraftToStorage();
+
+      this.showToast(`Bagian ${TV.VideoEngine.formatDuration(cutStart)} s/d ${TV.VideoEngine.formatDuration(cutEnd)} berhasil dibuang! Klip otomatis tersambung.`, 'success');
     }
 
     async _executeExport() {
