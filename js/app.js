@@ -230,6 +230,8 @@
       });
 
       this._dom.canvas.classList.toggle('mode-select', toolName === 'select');
+      this._dom.canvas.classList.toggle('mode-hand', toolName === 'hand');
+      this._dom.viewportContainer.classList.toggle('mode-hand', toolName === 'hand');
       if (toolName !== 'select') {
         this.selectedAnnotationId = null;
       }
@@ -254,7 +256,7 @@
 
       // Pointer Down on container background (for easy empty area panning)
       container.addEventListener('pointerdown', (e) => {
-        if (this.isSpacePressed || e.button === 1 || e.target === container) {
+        if (this.activeTool === 'hand' || this.isSpacePressed || e.button === 1 || e.target === container) {
           e.preventDefault();
           startPanning(e);
         }
@@ -262,7 +264,7 @@
 
       // Pointer Down on canvas
       canvas.addEventListener('pointerdown', (e) => {
-        if (this.isSpacePressed || e.button === 1) {
+        if (this.activeTool === 'hand' || this.isSpacePressed || e.button === 1) {
           e.preventDefault();
           startPanning(e);
           return;
@@ -1322,9 +1324,10 @@
         } else if (key === 'delete' || key === 'backspace') {
           this.deleteSelectedAnnotation();
         } else if (key === 'v') this.setTool('select');
+        else if (key === 'h') this.setTool('hand');
         else if (key === 'r') this.setTool('rectangle');
         else if (key === 'a') this.setTool('arrow');
-        else if (key === 'h') this.setTool('highlighter');
+        else if (key === 'd') this.setTool('highlighter');
         else if (key === 't') this.setTool('text');
         else if (key === 'n') this.setTool('step');
         else if (key === 'b') this.setTool('redact');

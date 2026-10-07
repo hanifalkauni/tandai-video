@@ -91,6 +91,11 @@
           <span class="tool-btn-badge">V</span>
         </button>
 
+        <button class="tool-btn" data-tool="hand" title="Alat Tangan / Geser Kanvas (H / Spasi+Drag)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 11V6a2 2 0 0 0-4 0v4M14 4a2 2 0 0 0-4 0v6M10 5a2 2 0 0 0-4 0v9a8 8 0 0 0 16 0v-4a2 2 0 0 0-4 0"/></svg>
+          <span class="tool-btn-badge">H</span>
+        </button>
+
         <button class="tool-btn" data-tool="rectangle" title="Kotak (R)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
           <span class="tool-btn-badge">R</span>
@@ -106,9 +111,9 @@
           <span class="tool-btn-badge">A</span>
         </button>
 
-        <button class="tool-btn" data-tool="highlighter" title="Highlighter / Stabilo (H)">
+        <button class="tool-btn" data-tool="highlighter" title="Highlighter / Stabilo (D)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-          <span class="tool-btn-badge">H</span>
+          <span class="tool-btn-badge">D</span>
         </button>
 
         <button class="tool-btn" data-tool="text" title="Teks Catatan (T)">
@@ -342,6 +347,18 @@
             <span>Bagi Klip (Split)</span>
           </button>
         </div>
+
+        <div class="timeline-header-center">
+          <div class="trim-time-inputs" title="Atur batas pemangkasan secara manual atau visual">
+            <span class="trim-input-badge trim-badge-start" title="Waktu Mulai Pemangkasan (Shortcut: I)">START</span>
+            <input type="text" id="trimStartInput" class="trim-time-field" value="00:00.00" title="Ketik waktu mulai (contoh: 00:05.50 atau 5.5) lalu tekan Enter" spellcheck="false" autocomplete="off">
+            <span class="trim-arrow">➔</span>
+            <span class="trim-input-badge trim-badge-end" title="Waktu Akhir Pemangkasan (Shortcut: O)">END</span>
+            <input type="text" id="trimEndInput" class="trim-time-field" value="00:00.00" title="Ketik waktu akhir (contoh: 00:25.00 atau 25) lalu tekan Enter" spellcheck="false" autocomplete="off">
+            <span class="trim-duration-badge" id="trimDurationBadge" title="Total Durasi Potongan Aktif">Durasi: 00:00.00</span>
+          </div>
+        </div>
+
         <div class="timeline-header-right">
           <div class="timeline-zoom-controls">
             <span style="font-size: 10px; color: var(--text-muted);">Skala:</span>
@@ -366,11 +383,13 @@
 
             <!-- Trim Dimmers & Handles (START & END) -->
             <div class="timeline-trim-dimmer-left"></div>
-            <div class="timeline-trim-handle-in" title="Tarik untuk mengatur batas awal video (START / Shortcut I)">
+            <div class="timeline-trim-handle-in" id="trimHandleIn" title="Tarik untuk mengatur batas awal video (START / Shortcut I)">
               <span class="timeline-trim-handle-badge">START</span>
+              <span class="trim-handle-time-tooltip" id="trimInTooltip">00:00.00</span>
             </div>
-            <div class="timeline-trim-handle-out" title="Tarik untuk mengatur batas akhir video (END / Shortcut O)">
+            <div class="timeline-trim-handle-out" id="trimHandleOut" title="Tarik untuk mengatur batas akhir video (END / Shortcut O)">
               <span class="timeline-trim-handle-badge">END</span>
+              <span class="trim-handle-time-tooltip" id="trimOutTooltip">00:00.00</span>
             </div>
             <div class="timeline-trim-dimmer-right"></div>
 
@@ -518,20 +537,24 @@
           <div><code>O</code> : Set Batas Akhir (END)</div>
           <div><code>C</code> / <code>K</code> : Bagi Klip / Anotasi (Split)</div>
           <div><code>V</code> : Alat Seleksi</div>
+          <div><code>H</code> / <code>Spasi + Drag</code> : Alat Tangan (Pan Kanvas)</div>
           <div><code>R</code> : Alat Kotak</div>
+          <div><code>O</code> : Alat Elips / Lingkaran</div>
           <div><code>A</code> : Alat Panah</div>
-          <div><code>H</code> : Alat Highlighter</div>
+          <div><code>D</code> : Alat Highlighter (Stabilo)</div>
           <div><code>T</code> : Alat Teks</div>
           <div><code>N</code> : Alat Nomor Langkah (1, 2, 3...)</div>
           <div><code>B</code> : Alat Sensor (Blur / Pixel / Hitam)</div>
           <div><code>S</code> : Alat Spotlight</div>
           <div><code>M</code> : Alat Kaca Pembesar Loupe</div>
+          <div><code>Scroll Mouse di Timeline</code> : Geser Horizontal</div>
+          <div><code>Ctrl + Scroll di Timeline</code> : Zoom Skala Timeline</div>
           <div><code>Ctrl + C</code> : Salin Snapshot ke Clipboard</div>
           <div><code>Ctrl + S</code> : Simpan Snapshot PNG</div>
           <div><code>Ctrl + E</code> : Ekspor Video / Paket ZIP</div>
           <div><code>Ctrl + Z</code> / <code>Y</code> : Undo / Redo</div>
           <div><code>Delete</code> : Hapus Anotasi Terpilih</div>
-          <div><code>Ctrl + Scroll</code> : Zoom In / Out Viewport</div>
+          <div><code>Ctrl + Scroll Kanvas</code> : Zoom In / Out Viewport</div>
         </div>
       </div>
       <div class="modal-footer">

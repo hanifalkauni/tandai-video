@@ -302,6 +302,17 @@ html, body {
   cursor: default;
 }
 
+#overlayCanvas.mode-hand,
+.viewport-canvas-container.mode-hand,
+.viewport-canvas-container.mode-hand #overlayCanvas {
+  cursor: grab !important;
+}
+
+.viewport-canvas-container.mode-hand.panning,
+.viewport-canvas-container.mode-hand.panning #overlayCanvas {
+  cursor: grabbing !important;
+}
+
 /* Empty Dropzone Card */
 .empty-dropzone {
   position: absolute;

@@ -26,6 +26,11 @@
       this.trimRightDimmer = this.container.querySelector('.timeline-trim-dimmer-right');
       this.trimHandleIn = this.container.querySelector('.timeline-trim-handle-in');
       this.trimHandleOut = this.container.querySelector('.timeline-trim-handle-out');
+      this.trimInTooltip = this.container.querySelector('#trimInTooltip');
+      this.trimOutTooltip = this.container.querySelector('#trimOutTooltip');
+      this.trimStartInput = this.container.querySelector('#trimStartInput');
+      this.trimEndInput = this.container.querySelector('#trimEndInput');
+      this.trimDurationBadge = this.container.querySelector('#trimDurationBadge');
       this.playlistBarEl = this.container.querySelector('.playlist-bar');
 
       // State
@@ -89,6 +94,66 @@
         e.stopPropagation();
         this._startTrimDrag('out', e);
       });
+
+      // 3. Mouse Wheel Scrolling in Timeline (Horizontal Slide & Ctrl+Wheel Zoom)
+      this.scrollContainer.addEventListener('wheel', (e) => {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          const zoomDelta = e.deltaY < 0 ? 1.2 : 0.83;
+          this.setZoom(this.zoomScale * zoomDelta);
+        } else {
+          e.preventDefault();
+          const delta = e.deltaY !== 0 ? e.deltaY : e.deltaX;
+          this.scrollContainer.scrollLeft += delta;
+        }
+      }, { passive: false });
+
+      // 4. Manual START & END Time Input Handlers
+      if (this.trimStartInput) {
+        const applyStart = () => {
+          const clip = this._currentClip;
+          if (!clip) return;
+          const parsed = TV.VideoEngine.parseTimeString(this.trimStartInput.value);
+          if (parsed === null || parsed < 0) {
+            this.trimStartInput.value = TV.VideoEngine.formatDuration(clip.trimIn);
+            return;
+          }
+          const clamped = Math.max(0, Math.min(parsed, (clip.trimOut || clip.duration) - 0.2));
+          clip.trimIn = clamped;
+          this._renderTrimOverlay(clip);
+          this._emit('trimChange', { trimIn: clip.trimIn, trimOut: clip.trimOut });
+        };
+        this.trimStartInput.addEventListener('change', applyStart);
+        this.trimStartInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            this.trimStartInput.blur();
+          }
+        });
+      }
+
+      if (this.trimEndInput) {
+        const applyEnd = () => {
+          const clip = this._currentClip;
+          if (!clip) return;
+          const parsed = TV.VideoEngine.parseTimeString(this.trimEndInput.value);
+          if (parsed === null || parsed <= 0) {
+            this.trimEndInput.value = TV.VideoEngine.formatDuration(clip.trimOut || clip.duration);
+            return;
+          }
+          const clamped = Math.min(clip.duration, Math.max(clip.trimIn + 0.2, parsed));
+          clip.trimOut = clamped;
+          this._renderTrimOverlay(clip);
+          this._emit('trimChange', { trimIn: clip.trimIn, trimOut: clip.trimOut });
+        };
+        this.trimEndInput.addEventListener('change', applyEnd);
+        this.trimEndInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            this.trimEndInput.blur();
+          }
+        });
+      }
     }
 
     setZoom(scale = 1.0) {
@@ -209,6 +274,9 @@
       this.trimRightDimmer.style.width = '0px';
       this.trimHandleIn.style.display = 'none';
       this.trimHandleOut.style.display = 'none';
+      if (this.trimStartInput) this.trimStartInput.value = '00:00.00';
+      if (this.trimEndInput) this.trimEndInput.value = '00:00.00';
+      if (this.trimDurationBadge) this.trimDurationBadge.textContent = 'Durasi: 00:00.00';
     }
 
     _renderRuler(duration) {
@@ -247,13 +315,31 @@
 
       this.trimHandleIn.style.display = 'flex';
       this.trimHandleIn.style.left = `${inPx}px`;
+      if (this.trimInTooltip) {
+        this.trimInTooltip.textContent = TV.VideoEngine.formatDuration(clip.trimIn);
+      }
 
       this.trimHandleOut.style.display = 'flex';
       this.trimHandleOut.style.left = `${outPx}px`;
+      if (this.trimOutTooltip) {
+        this.trimOutTooltip.textContent = TV.VideoEngine.formatDuration(clip.trimOut || clip.duration);
+      }
 
       this.trimRightDimmer.style.display = 'block';
       this.trimRightDimmer.style.left = `${outPx}px`;
       this.trimRightDimmer.style.right = '0';
+
+      // Sync manual inputs if not currently focused by user
+      if (this.trimStartInput && document.activeElement !== this.trimStartInput) {
+        this.trimStartInput.value = TV.VideoEngine.formatDuration(clip.trimIn);
+      }
+      if (this.trimEndInput && document.activeElement !== this.trimEndInput) {
+        this.trimEndInput.value = TV.VideoEngine.formatDuration(clip.trimOut || clip.duration);
+      }
+      if (this.trimDurationBadge) {
+        const activeDur = Math.max(0, (clip.trimOut || clip.duration) - clip.trimIn);
+        this.trimDurationBadge.textContent = `Durasi: ${TV.VideoEngine.formatDuration(activeDur)}`;
+      }
     }
 
     _renderTracks(clip, selectedAnnotationId) {
