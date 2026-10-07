@@ -114,7 +114,9 @@
           clip.width = meta.width;
           clip.height = meta.height;
           clip.fps = meta.fps;
-          clip.trimOut = meta.duration;
+          // Keep trim restored from a saved project; default to full length otherwise
+          if (!clip.trimOut || clip.trimOut > meta.duration) clip.trimOut = meta.duration;
+          if (clip.trimIn >= clip.trimOut) clip.trimIn = 0;
           this.renderer.setDimensions(meta.width, meta.height);
           this._fitViewportToContainer();
           this._dom.emptyDropzone.hidden = true;
@@ -1470,6 +1472,21 @@
 
     async loadVideoFile(file) {
       try {
+        // Relink mode: attach the chosen video to a clip restored from a project file
+        const relinkClip = this.pendingRelinkClip;
+        if (relinkClip) {
+          this.pendingRelinkClip = null;
+          this._resetDropzoneText();
+          relinkClip.file = file;
+          relinkClip.blobUrl = URL.createObjectURL(file);
+          this.session.activeClipIndex = Math.max(0, this.session.clips.indexOf(relinkClip));
+          await this.videoEngine.loadSource(relinkClip.blobUrl);
+          this.videoEngine.setPlaybackBounds(relinkClip.trimIn, relinkClip.trimOut);
+          this.videoEngine.currentTime = relinkClip.trimIn || 0;
+          this.showToast('Proyek dipulihkan: video, anotasi & batas START/END dimuat.', 'success');
+          return;
+        }
+
         this.showToast(`Memuat video: ${file.name}...`, 'info');
         const clip = new TV.VideoClip({
           name: file.name,
@@ -1548,7 +1565,16 @@
     switchClip(index) {
       this.session.activeClipIndex = index;
       const clip = this.session.getActiveClip();
+      if (clip && !clip.blobUrl) {
+        this._dom.video.pause();
+        this.timeline.render({ projectSession: this.session, currentTime: 0, selectedAnnotationId: null });
+        this._requestRelink(clip);
+        return;
+      }
       if (clip && clip.blobUrl) {
+        this.pendingRelinkClip = null;
+        this._resetDropzoneText();
+        this._dom.emptyDropzone.hidden = true;
         const startT = typeof clip.trimIn === 'number' ? clip.trimIn : 0;
         if (this._dom.video.src === clip.blobUrl) {
           this.videoEngine.currentTime = startT;
@@ -1621,28 +1647,64 @@
 
       document.getElementById('jsonFileInput')?.addEventListener('change', (e) => {
         const file = e.target.files[0];
-        if (file) {
-          const reader = new FileReader();
-          reader.onload = (ev) => {
-            try {
-              const data = JSON.parse(ev.target.result);
-              if (data.project) {
-                this.session = new TV.ProjectSession(data.project);
-                this.showToast('Proyek JSON berhasil dimuat!', 'success');
-                this._dom.projectModal.classList.remove('active');
-                this.timeline.render({
-                  projectSession: this.session,
-                  currentTime: this.videoEngine.currentTime,
-                  selectedAnnotationId: null
-                });
-              }
-            } catch (err) {
-              this.showToast('Gagal mem-parsing JSON proyek.', 'error');
+        e.target.value = '';
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            const data = JSON.parse(ev.target.result);
+            if (!data.project || !Array.isArray(data.project.clips)) {
+              this.showToast('Berkas proyek tidak valid.', 'error');
+              return;
             }
-          };
-          reader.readAsText(file);
-        }
+            this._dom.video.pause();
+            this.session = new TV.ProjectSession(data.project);
+            this.selectedAnnotationId = null;
+            this._dom.projectModal.classList.remove('active');
+            this.timeline.render({
+              projectSession: this.session,
+              currentTime: 0,
+              selectedAnnotationId: null
+            });
+            this._updateInspector();
+            this._saveDraftToStorage();
+            const first = this.session.getActiveClip();
+            if (first) {
+              this._requestRelink(first);
+            } else {
+              this.showToast('Proyek dimuat (belum ada klip).', 'info');
+            }
+          } catch (err) {
+            this.showToast('Gagal mem-parsing JSON proyek.', 'error');
+          }
+        };
+        reader.readAsText(file);
       });
+    }
+
+    /**
+     * Project files only store annotations, trim & metadata (never the video itself).
+     * Ask the user to pick the original video so it can be re-attached to the clip.
+     */
+    _requestRelink(clip) {
+      this.pendingRelinkClip = clip;
+      const dz = this._dom.emptyDropzone;
+      const title = dz.querySelector('.dropzone-title');
+      const sub = dz.querySelector('.dropzone-subtitle');
+      if (title && this._dzTitleOrig === undefined) this._dzTitleOrig = title.textContent;
+      if (sub && this._dzSubOrig === undefined) this._dzSubOrig = sub.textContent;
+      if (title) title.textContent = 'Pilih Video Asli untuk Proyek Ini';
+      if (sub) sub.textContent = `Proyek tidak menyimpan file video. Pilih kembali file "${clip.name}" (atau tarik ke sini) agar anotasi & batas START/END dipulihkan.`;
+      dz.hidden = false;
+      this.showToast(`Pilih video asli: ${clip.name}`, 'info');
+    }
+
+    _resetDropzoneText() {
+      const dz = this._dom.emptyDropzone;
+      const title = dz.querySelector('.dropzone-title');
+      const sub = dz.querySelector('.dropzone-subtitle');
+      if (title && this._dzTitleOrig !== undefined) title.textContent = this._dzTitleOrig;
+      if (sub && this._dzSubOrig !== undefined) sub.textContent = this._dzSubOrig;
     }
 
     openWatermarkModal() {
