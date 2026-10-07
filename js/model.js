@@ -430,7 +430,9 @@
         a instanceof BaseAnnotation ? a : TV.AnnotationFactory.create(a)
       );
       this.history = new UndoRedoHistory();
-      this.saveHistorySnapshot();
+      if (this.duration > 0) {
+        this.saveHistorySnapshot();
+      }
     }
 
     getDuration() {
@@ -557,6 +559,7 @@
     }
 
     saveHistorySnapshot() {
+      if (this.duration <= 0 && this.rawDuration <= 0) return;
       this.history.pushState({
         annotations: this.annotations.map(a => a.toJSON()),
         segments: this.segments ? this.segments.map(s => ({ start: s.start, end: s.end })) : [],
@@ -590,12 +593,16 @@
           this.annotations = state.map(a => TV.AnnotationFactory.create(a));
         } else {
           this.annotations = (state.annotations || []).map(a => TV.AnnotationFactory.create(a));
-          if (state.segments) {
+          if (state.segments && state.segments.length > 0) {
             this.segments = state.segments.map(s => ({ start: s.start, end: s.end }));
-            this.duration = state.duration || this.getDuration();
-            this.trimIn = state.trimIn || 0;
-            this.trimOut = state.trimOut || this.duration;
+            this.duration = this.getDuration();
           }
+          if (this.duration <= 0 && this.rawDuration > 0) {
+            this.segments = [{ start: 0, end: this.rawDuration }];
+            this.duration = this.rawDuration;
+          }
+          this.trimIn = typeof state.trimIn === 'number' ? state.trimIn : 0;
+          this.trimOut = typeof state.trimOut === 'number' && state.trimOut > 0 ? state.trimOut : this.duration;
         }
         return true;
       }
@@ -609,12 +616,16 @@
           this.annotations = state.map(a => TV.AnnotationFactory.create(a));
         } else {
           this.annotations = (state.annotations || []).map(a => TV.AnnotationFactory.create(a));
-          if (state.segments) {
+          if (state.segments && state.segments.length > 0) {
             this.segments = state.segments.map(s => ({ start: s.start, end: s.end }));
-            this.duration = state.duration || this.getDuration();
-            this.trimIn = state.trimIn || 0;
-            this.trimOut = state.trimOut || this.duration;
+            this.duration = this.getDuration();
           }
+          if (this.duration <= 0 && this.rawDuration > 0) {
+            this.segments = [{ start: 0, end: this.rawDuration }];
+            this.duration = this.rawDuration;
+          }
+          this.trimIn = typeof state.trimIn === 'number' ? state.trimIn : 0;
+          this.trimOut = typeof state.trimOut === 'number' && state.trimOut > 0 ? state.trimOut : this.duration;
         }
         return true;
       }

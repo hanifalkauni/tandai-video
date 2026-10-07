@@ -123,6 +123,11 @@
           // Keep trim restored from a saved project; default to full length otherwise
           if (!clip.trimOut || clip.trimOut > clip.duration) clip.trimOut = clip.duration;
           if (clip.trimIn >= clip.trimOut) clip.trimIn = 0;
+
+          // Clear any premature history and establish proper baseline history
+          clip.history.clear();
+          clip.saveHistorySnapshot();
+
           this.videoEngine.setActiveClip(clip);
           this.renderer.setDimensions(meta.width, meta.height);
           this._fitViewportToContainer();
@@ -1375,12 +1380,16 @@
       const clip = this.session.getActiveClip();
       if (clip && clip.undo()) {
         this.selectedAnnotationId = null;
+        this.videoEngine.setActiveClip(clip);
+        this.videoEngine.setPlaybackBounds(clip.trimIn, clip.trimOut);
         this._updateInspector();
+        this._updatePlaybackUI();
         this.timeline.render({
           projectSession: this.session,
           currentTime: this.videoEngine.currentTime,
           selectedAnnotationId: null
         });
+        this._saveDraftToStorage();
         this.showToast('Undo berhasil.', 'info');
       }
     }
@@ -1389,12 +1398,16 @@
       const clip = this.session.getActiveClip();
       if (clip && clip.redo()) {
         this.selectedAnnotationId = null;
+        this.videoEngine.setActiveClip(clip);
+        this.videoEngine.setPlaybackBounds(clip.trimIn, clip.trimOut);
         this._updateInspector();
+        this._updatePlaybackUI();
         this.timeline.render({
           projectSession: this.session,
           currentTime: this.videoEngine.currentTime,
           selectedAnnotationId: null
         });
+        this._saveDraftToStorage();
         this.showToast('Redo berhasil.', 'info');
       }
     }

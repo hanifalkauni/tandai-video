@@ -220,6 +220,20 @@
       const clip = projectSession.getActiveClip();
       this._currentClip = clip;
 
+      if (clip && clip.duration <= 0) {
+        if (typeof clip.getDuration === 'function') {
+          clip.duration = clip.getDuration();
+        }
+        if (clip.duration <= 0 && clip.rawDuration > 0) {
+          clip.segments = [{ start: 0, end: clip.rawDuration }];
+          clip.duration = clip.rawDuration;
+        } else if (clip.duration <= 0 && this.engine && this.engine.video && isFinite(this.engine.video.duration) && this.engine.video.duration > 0) {
+          clip.rawDuration = this.engine.video.duration;
+          clip.segments = [{ start: 0, end: clip.rawDuration }];
+          clip.duration = clip.rawDuration;
+        }
+      }
+
       if (!clip || clip.duration <= 0) {
         this.contentWrapper.style.width = '100%';
         this._renderEmpty();
