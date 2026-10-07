@@ -216,6 +216,7 @@
       document.getElementById('shortcutsBtn')?.addEventListener('click', () => this.openShortcutsModal());
       document.getElementById('themeToggleBtn')?.addEventListener('click', () => this.toggleTheme());
       document.getElementById('splitClipBtn')?.addEventListener('click', () => this.splitAtPlayhead());
+      this._dom.zoomIndicator?.addEventListener('click', () => this._fitViewportToContainer());
     }
 
     setTool(toolName) {
@@ -238,29 +239,32 @@
       const canvas = this._dom.canvas;
       const container = this._dom.viewportContainer;
 
-      // Transform Coordinates from Screen/Pointer to Video Canvas
-      const getCanvasPoint = (e) => {
-        const rect = canvas.getBoundingClientRect();
-        const scaleX = this.renderer.width / rect.width;
-        const scaleY = this.renderer.height / rect.height;
-        return {
-          x: (e.clientX - rect.left) * scaleX,
-          y: (e.clientY - rect.top) * scaleY
-        };
+      // Panning helper
+      const startPanning = (e) => {
+        this.isPanning = true;
+        this.didPanDuringSpace = true;
+        this.panStartX = e.clientX - this.panX;
+        this.panStartY = e.clientY - this.panY;
+        container.classList.add('panning');
       };
 
-      // Pointer Down
+      // Pointer Down on container background (for easy empty area panning)
+      container.addEventListener('pointerdown', (e) => {
+        if (this.isSpacePressed || e.button === 1 || e.target === container) {
+          e.preventDefault();
+          startPanning(e);
+        }
+      });
+
+      // Pointer Down on canvas
       canvas.addEventListener('pointerdown', (e) => {
         if (this.isSpacePressed || e.button === 1) {
-          // Pan mode
-          this.isPanning = true;
-          this.panStartX = e.clientX - this.panX;
-          this.panStartY = e.clientY - this.panY;
-          container.classList.add('panning');
+          e.preventDefault();
+          startPanning(e);
           return;
         }
 
-        const pt = getCanvasPoint(e);
+        const pt = this._screenToCanvas(e);
         const clip = this.session.getActiveClip();
         if (!clip) return;
 
@@ -417,7 +421,7 @@
         }
 
         if (this.isDrawing && this.draftAnnotation) {
-          const pt = getCanvasPoint(e);
+          const pt = this._screenToCanvas(e);
           const isShift = e.shiftKey;
 
           if (this.draftAnnotation.type === 'arrow') {
@@ -491,14 +495,27 @@
         }
       });
 
-      // Zoom via Mouse Wheel
+      // Zoom via Mouse Wheel (towards cursor position) & Scroll Pan (Horizontal & Vertical)
       container.addEventListener('wheel', (e) => {
+        e.preventDefault();
+
         if (e.ctrlKey || e.metaKey) {
-          e.preventDefault();
-          const zoomDelta = e.deltaY > 0 ? -0.1 : 0.1;
-          this.setViewportZoom(this.viewportZoom + zoomDelta);
+          // Zoom centered at cursor position
+          const factor = e.deltaY < 0 ? 1.12 : 0.89;
+          const targetZoom = this.viewportZoom * factor;
+          this.setViewportZoom(targetZoom, { clientX: e.clientX, clientY: e.clientY });
+        } else {
+          // Normal scroll: pan canvas horizontally and vertically
+          if (e.shiftKey) {
+            // Shift + vertical wheel converts to horizontal pan
+            this.panX -= (e.deltaY || e.deltaX);
+          } else {
+            this.panX -= e.deltaX;
+            this.panY -= e.deltaY;
+          }
+          this._applyViewportTransform();
         }
-      });
+      }, { passive: false });
     }
 
     _startObjectMove(ann, startPt) {
@@ -695,10 +712,23 @@
     }
 
     /* --------------------------------------------------------------------------
-       Viewport Zoom & Pan Transforms
+       Viewport Zoom & Pan Transforms (Cursor-Centered Zoom & Pan)
        -------------------------------------------------------------------------- */
-    setViewportZoom(zoom) {
-      this.viewportZoom = Math.max(0.25, Math.min(zoom, 4.0));
+    setViewportZoom(zoom, cursorPoint = null) {
+      const clampedZoom = Math.max(0.25, Math.min(zoom, 5.0));
+      if (Math.abs(clampedZoom - this.viewportZoom) < 0.001) return;
+
+      if (cursorPoint) {
+        const containerRect = this._dom.viewportContainer.getBoundingClientRect();
+        // Mouse coordinates relative to viewport container center
+        const mx = cursorPoint.clientX - containerRect.left - containerRect.width / 2;
+        const my = cursorPoint.clientY - containerRect.top - containerRect.height / 2;
+        const ratio = clampedZoom / this.viewportZoom;
+        this.panX = mx - (mx - this.panX) * ratio;
+        this.panY = my - (my - this.panY) * ratio;
+      }
+
+      this.viewportZoom = clampedZoom;
       this._applyViewportTransform();
       this._dom.zoomIndicator.textContent = `${Math.round(this.viewportZoom * 100)}%`;
     }
@@ -1220,7 +1250,8 @@
           e.preventDefault();
           if (!this.isSpacePressed) {
             this.isSpacePressed = true;
-            this.videoEngine.togglePlay();
+            this.didPanDuringSpace = false;
+            this._dom.viewportContainer.classList.add('space-held');
           }
           return;
         }
@@ -1233,6 +1264,15 @@
           this.videoEngine.jumpSeconds(e.shiftKey ? -5 : -1);
         } else if (key === 'arrowright') {
           this.videoEngine.jumpSeconds(e.shiftKey ? 5 : 1);
+        } else if ((key === '+' || key === '=') || (isCtrl && (key === '+' || key === '='))) {
+          e.preventDefault();
+          this.setViewportZoom(this.viewportZoom * 1.15);
+        } else if ((key === '-' || key === '_') || (isCtrl && (key === '-' || key === '_'))) {
+          e.preventDefault();
+          this.setViewportZoom(this.viewportZoom * 0.87);
+        } else if (key === '0' && isCtrl) {
+          e.preventDefault();
+          this._fitViewportToContainer();
         } else if (key === 'i') {
           const clip = this.session.getActiveClip();
           if (clip) {
@@ -1289,6 +1329,11 @@
       window.addEventListener('keyup', (e) => {
         if (e.code === 'Space') {
           this.isSpacePressed = false;
+          this._dom.viewportContainer.classList.remove('space-held');
+          if (!this.didPanDuringSpace) {
+            this.videoEngine.togglePlay();
+          }
+          this.didPanDuringSpace = false;
         }
       });
     }

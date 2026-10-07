@@ -253,13 +253,16 @@ html, body {
   background-image: radial-gradient(var(--dot) 1px, transparent 1px);
   background-size: 18px 18px;
   cursor: default;
+  touch-action: none;
 }
 
-.viewport-canvas-container.panning {
+.viewport-canvas-container.space-held,
+.viewport-canvas-container.space-held #overlayCanvas {
   cursor: grab !important;
 }
 
-.viewport-canvas-container.panning:active {
+.viewport-canvas-container.panning,
+.viewport-canvas-container.panning #overlayCanvas {
   cursor: grabbing !important;
 }
 
