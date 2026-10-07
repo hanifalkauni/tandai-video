@@ -39,6 +39,7 @@
         selectAnnotation: [],
         annotationChange: [],
         trimChange: [],
+        trimLiveChange: [],
         clipSwitch: [],
         clipRemove: []
       };
@@ -126,10 +127,11 @@
           clip.trimOut = Math.max(t, clip.trimIn + 0.2);
         }
         this._renderTrimOverlay(clip);
-        this._emit('trimChange', { trimIn: clip.trimIn, trimOut: clip.trimOut });
+        this._emit('trimLiveChange', { trimIn: clip.trimIn, trimOut: clip.trimOut });
       };
 
       const onUp = () => {
+        this._emit('trimChange', { trimIn: clip.trimIn, trimOut: clip.trimOut });
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
       };

@@ -18,6 +18,7 @@
 
       this.fps = 30;
       this.isPlaying = false;
+      this.playbackBounds = { trimIn: 0, trimOut: null };
       this.listeners = {
         timeupdate: [],
         loadedmetadata: [],
@@ -29,6 +30,26 @@
       this._rvfcId = null;
       this._rafId = null;
       this._bindInternalEvents();
+    }
+
+    setPlaybackBounds(trimIn = 0, trimOut = null) {
+      this.playbackBounds = {
+        trimIn: typeof trimIn === 'number' ? trimIn : 0,
+        trimOut: typeof trimOut === 'number' && trimOut > 0 ? trimOut : null
+      };
+    }
+
+    _checkPlaybackBoundary() {
+      if (!this.playbackBounds) return false;
+      const trimIn = this.playbackBounds.trimIn || 0;
+      const trimOut = this.playbackBounds.trimOut;
+
+      if (typeof trimOut === 'number' && this.currentTime >= trimOut) {
+        this.pause();
+        this.currentTime = trimIn;
+        return true;
+      }
+      return false;
     }
 
     _bindInternalEvents() {
@@ -65,6 +86,9 @@
       });
 
       this.video.addEventListener('timeupdate', () => {
+        if (this.isPlaying && this._checkPlaybackBoundary()) {
+          return;
+        }
         this._emit('timeupdate', { currentTime: this.currentTime, duration: this.duration });
       });
     }
@@ -78,6 +102,11 @@
       this._stopSyncLoop();
       const onFrame = (now, metadata) => {
         if (!this.isPlaying) return;
+
+        if (this._checkPlaybackBoundary()) {
+          return;
+        }
+
         this._emit('timeupdate', {
           currentTime: this.currentTime,
           duration: this.duration,
@@ -135,6 +164,13 @@
     }
 
     async play() {
+      if (this.playbackBounds) {
+        const startT = typeof this.playbackBounds.trimIn === 'number' ? this.playbackBounds.trimIn : 0;
+        const endT = typeof this.playbackBounds.trimOut === 'number' ? this.playbackBounds.trimOut : this.duration;
+        if (this.currentTime < startT - 0.05 || this.currentTime >= endT - 0.05) {
+          this.currentTime = startT;
+        }
+      }
       try {
         await this.video.play();
       } catch (err) {

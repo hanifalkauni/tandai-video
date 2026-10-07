@@ -163,8 +163,12 @@
         this._saveDraftToStorage();
       });
 
+      this.timeline.on('trimLiveChange', ({ trimIn, trimOut }) => {
+        this.videoEngine.setPlaybackBounds(trimIn, trimOut);
+      });
+
       this.timeline.on('trimChange', ({ trimIn, trimOut }) => {
-        this.showToast(`Batas Video: ${TV.VideoEngine.formatDuration(trimIn)} (START) - ${TV.VideoEngine.formatDuration(trimOut)} (END)`, 'info');
+        this.videoEngine.setPlaybackBounds(trimIn, trimOut);
         this._saveDraftToStorage();
       });
 
@@ -1277,6 +1281,7 @@
           const clip = this.session.getActiveClip();
           if (clip) {
             clip.trimIn = this.videoEngine.currentTime;
+            this.videoEngine.setPlaybackBounds(clip.trimIn, clip.trimOut);
             this.timeline.render({
               projectSession: this.session,
               currentTime: this.videoEngine.currentTime,
@@ -1288,6 +1293,7 @@
           const clip = this.session.getActiveClip();
           if (clip) {
             clip.trimOut = this.videoEngine.currentTime;
+            this.videoEngine.setPlaybackBounds(clip.trimIn, clip.trimOut);
             this.timeline.render({
               projectSession: this.session,
               currentTime: this.videoEngine.currentTime,
@@ -1470,6 +1476,7 @@
 
         this.session.addClip(clip);
         await this.videoEngine.loadSource(clip.blobUrl);
+        this.videoEngine.setPlaybackBounds(clip.trimIn, clip.trimOut);
         this.showToast('Video berhasil dimuat!', 'success');
       } catch (err) {
         this.showToast(`Gagal memuat video: ${err.message}`, 'error');
@@ -1771,17 +1778,41 @@
     }
 
     showToast(message, type = 'info') {
+      const container = this._dom.toastContainer;
+      if (!container) return;
+
+      // Limit stack to at most 2 items to prevent spamming
+      while (container.children.length >= 2) {
+        const oldest = container.firstElementChild;
+        oldest.remove();
+      }
+
+      // If an identical message is already shown, refresh its timer rather than creating a duplicate
+      for (const child of container.children) {
+        const textEl = child.querySelector('.toast-text');
+        if (textEl && textEl.textContent === message) {
+          child.style.opacity = '1';
+          clearTimeout(child._timeout);
+          child._timeout = setTimeout(() => {
+            child.style.opacity = '0';
+            setTimeout(() => child.remove(), 250);
+          }, 2400);
+          return;
+        }
+      }
+
       const toast = document.createElement('div');
       toast.className = `toast toast-${type}`;
       toast.innerHTML = `
-        <span>${type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ'}</span>
-        <span>${message}</span>
+        <span class="toast-icon">${type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ'}</span>
+        <span class="toast-text">${message}</span>
       `;
-      this._dom.toastContainer.appendChild(toast);
-      setTimeout(() => {
+      container.appendChild(toast);
+
+      toast._timeout = setTimeout(() => {
         toast.style.opacity = '0';
         setTimeout(() => toast.remove(), 250);
-      }, 3500);
+      }, 2400);
     }
   }
 
