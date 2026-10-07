@@ -1,0 +1,574 @@
+/* ==========================================================================
+   tandai-video — UI Components, Buttons, Modals, Forms & Toasts
+   Mengikuti Sistem Desain & Palet Warna tandai-ss
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   Buttons (Mengikuti gaya .btn pada tandai-ss)
+   -------------------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  outline: none;
+  transition: background var(--transition-fast), border-color var(--transition-fast), transform 0.05s;
+  white-space: nowrap;
+}
+
+.btn:hover {
+  background-color: var(--surface-hover);
+  border-color: var(--line-hover);
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.btn-primary {
+  background-color: var(--brand);
+  border-color: var(--brand);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(13, 148, 136, 0.3);
+}
+
+.btn-primary:hover {
+  background-color: var(--brand-dark);
+  border-color: var(--brand-dark);
+}
+
+.btn-danger {
+  background-color: var(--surface);
+  border-color: var(--line);
+  color: var(--danger);
+}
+
+.btn-danger:hover {
+  background-color: var(--danger-subtle);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.btn-ghost {
+  background-color: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+
+.btn-ghost:hover {
+  background-color: var(--surface-2);
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.btn-icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--radius-md);
+}
+
+.btn-sm {
+  height: 28px;
+  font-size: 11px;
+  padding: 0 8px;
+}
+
+.btn-lg {
+  height: 40px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 20px;
+  border-radius: var(--radius-md);
+}
+
+/* Tool Button (Left Rail) */
+.tool-btn {
+  width: 38px;
+  height: 38px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-radius: var(--radius-md);
+  border: none;
+  background-color: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  position: relative;
+}
+
+.tool-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.tool-btn:hover {
+  background-color: var(--surface-2);
+  color: var(--ink);
+}
+
+.tool-btn.active {
+  background-color: var(--brand);
+  color: #ffffff;
+  box-shadow: 0 3px 10px rgba(13, 148, 136, 0.35);
+}
+
+.tool-btn-badge {
+  position: absolute;
+  bottom: 2px;
+  right: 4px;
+  font-size: 8px;
+  font-weight: 700;
+  opacity: 0.65;
+}
+
+/* --------------------------------------------------------------------------
+   Form Controls, Inputs & Selects
+   -------------------------------------------------------------------------- */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.form-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.form-input, .form-select, .form-textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background-color: var(--surface-2);
+  color: var(--ink);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.form-input:focus, .form-select:focus, .form-textarea:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px var(--brand-border);
+}
+
+.form-textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+/* Color Picker Swatches */
+.color-swatches {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.color-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  transition: transform var(--transition-fast);
+}
+
+.color-swatch:hover {
+  transform: scale(1.15);
+}
+
+.color-swatch.active {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.color-input-custom {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  background: transparent;
+}
+
+/* Slider with Value Display */
+.range-slider-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.range-slider {
+  flex: 1;
+  height: 4px;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
+.range-slider-val {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  width: 32px;
+  text-align: right;
+}
+
+/* Toggle Switch */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 18px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: var(--line);
+  transition: var(--transition-fast);
+  border-radius: var(--radius-pill);
+}
+
+.toggle-slider::before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 2px;
+  bottom: 2px;
+  background-color: #ffffff;
+  transition: var(--transition-fast);
+  border-radius: 50%;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background-color: var(--brand);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(16px);
+}
+
+/* --------------------------------------------------------------------------
+   Modals & Dialog Popups
+   -------------------------------------------------------------------------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--transition-normal), visibility var(--transition-normal);
+}
+
+.modal-backdrop.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.modal-dialog {
+  background-color: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popup);
+  width: 90%;
+  max-width: 500px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: translateY(12px) scale(0.98);
+  transition: transform var(--transition-normal);
+}
+
+.modal-backdrop.active .modal-dialog {
+  transform: translateY(0) scale(1);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-body {
+  padding: 18px;
+  overflow-y: auto;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 18px;
+  background-color: var(--surface-2);
+  border-top: 1px solid var(--line);
+}
+
+/* Progress Bar in Export Modal */
+.progress-bar-container {
+  width: 100%;
+  height: 8px;
+  background-color: var(--surface-2);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  margin: 12px 0 6px;
+  border: 1px solid var(--line);
+}
+
+.progress-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--brand);
+  border-radius: var(--radius-pill);
+  transition: width 0.1s linear;
+}
+
+.progress-bar-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------------------------
+   Toast Notifications
+   -------------------------------------------------------------------------- */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 200;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background-color: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+  max-width: 340px;
+  animation: toastSlideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.toast.toast-success {
+  border-left: 4px solid var(--success);
+}
+
+.toast.toast-error {
+  border-left: 4px solid var(--danger);
+}
+
+.toast.toast-info {
+  border-left: 4px solid var(--brand);
+}
+
+@keyframes toastSlideIn {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Live Screen Recording Indicator Banner
+   -------------------------------------------------------------------------- */
+.recording-banner {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: rgba(17, 24, 39, 0.9);
+  border: 1px solid rgba(239, 68, 68, 0.6);
+  border-radius: var(--radius-pill);
+  box-shadow: 0 4px 20px rgba(239, 68, 68, 0.3), 0 2px 8px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  z-index: 50;
+  animation: recordingBannerFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+@keyframes recordingBannerFadeIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -10px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+.recording-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recording-dot {
+  width: 10px;
+  height: 10px;
+  background-color: #ef4444;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #ef4444;
+  animation: recordingPulse 1.2s infinite ease-in-out;
+}
+
+@keyframes recordingPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0.4;
+  }
+}
+
+.recording-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #f87171;
+}
+
+.recording-timer {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  min-width: 52px;
+  text-align: center;
+}
+
+.recording-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-stop-recording {
+  background: #dc2626 !important;
+  color: #ffffff !important;
+  border: none !important;
+  font-weight: 600;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.4);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.05s ease;
+}
+
+.btn-stop-recording:hover {
+  background: #b91c1c !important;
+}
+
+.btn-stop-recording:active {
+  transform: translateY(1px);
+}
+
+/* --------------------------------------------------------------------------
+   Inline Canvas Text Editor (Mengikuti tandai-ss: tanpa kotak rectangle tebal)
+   -------------------------------------------------------------------------- */
+#canvasTextEditor {
+  position: absolute;
+  z-index: 60;
+  border: 1px dashed var(--brand);
+  background: transparent;
+  color: #ffffff;
+  padding: 0;
+  margin: 0;
+  border-radius: 2px;
+  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  font-weight: 600;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  white-space: pre;
+  word-break: normal;
+  line-height: 1.35;
+  box-sizing: border-box;
+}
+
+

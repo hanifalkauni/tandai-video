@@ -1,0 +1,452 @@
+/* ==========================================================================
+   tandai-video — Multi-Track Timeline & Clip Playlist Styles
+   Mengikuti Sistem Desain & Token tandai-ss
+   ========================================================================== */
+
+.app-timeline {
+  grid-area: timeline;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--surface);
+  border-top: 1px solid var(--line);
+  z-index: 35;
+  user-select: none;
+  overflow: hidden;
+}
+
+/* --------------------------------------------------------------------------
+   Timeline Header / Toolbar Bar
+   -------------------------------------------------------------------------- */
+.timeline-header {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background-color: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.timeline-header-left, .timeline-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.timeline-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+}
+
+.timeline-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* --------------------------------------------------------------------------
+   Timeline Body (Ruler + Tracks Area)
+   -------------------------------------------------------------------------- */
+.timeline-body {
+  flex: 1;
+  display: flex;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Left Sidebar for Track Labels */
+.timeline-track-headers {
+  width: 120px;
+  flex-shrink: 0;
+  background-color: var(--surface-2);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+}
+
+.track-header-ruler-spacer {
+  height: 24px;
+  border-bottom: 1px solid var(--line);
+  background-color: var(--surface);
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.track-header-item {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.track-header-item:hover {
+  background-color: var(--surface-hover);
+}
+
+.track-header-item.selected {
+  background-color: var(--brand-subtle);
+  color: var(--brand);
+  font-weight: 600;
+}
+
+.track-header-item .track-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.track-vis-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.track-vis-btn:hover {
+  color: var(--ink);
+  background-color: var(--surface-hover);
+}
+
+.track-vis-btn.is-hidden {
+  color: var(--danger) !important;
+  opacity: 0.9;
+}
+
+.annotation-block.is-hidden-block {
+  opacity: 0.3 !important;
+  filter: grayscale(0.8) !important;
+  border-style: dashed !important;
+  border-color: rgba(255, 255, 255, 0.5) !important;
+}
+
+/* Main Timeline Scrollable Container */
+.timeline-scroll-container {
+  flex: 1;
+  position: relative;
+  overflow-x: auto;
+  overflow-y: auto;
+  background-color: var(--bg);
+}
+
+.timeline-content-wrapper {
+  position: relative;
+  min-width: 100%;
+  height: 100%;
+}
+
+/* --------------------------------------------------------------------------
+   Timeline Time Ruler (Graduations & Ticks)
+   -------------------------------------------------------------------------- */
+.timeline-ruler {
+  height: 24px;
+  position: relative;
+  background-color: var(--surface);
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.ruler-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--line);
+  pointer-events: none;
+}
+
+.ruler-tick.major {
+  border-left-color: var(--muted);
+}
+
+.ruler-label {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+   Timeline Playhead Cursor & Indicator
+   -------------------------------------------------------------------------- */
+.timeline-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: var(--danger);
+  z-index: 25;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.timeline-playhead-handle {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 12px;
+  height: 16px;
+  background-color: var(--danger);
+  clip-path: polygon(0 0, 100% 0, 100% 65%, 50% 100%, 0 65%);
+  cursor: ew-resize;
+  pointer-events: auto;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* --------------------------------------------------------------------------
+   Trim In/Out Region Overlay
+   -------------------------------------------------------------------------- */
+.timeline-trim-dimmer-left,
+.timeline-trim-dimmer-right {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(1px);
+  z-index: 8;
+  pointer-events: none;
+}
+
+.timeline-trim-dimmer-left {
+  left: 0;
+}
+
+.timeline-trim-handle-in,
+.timeline-trim-handle-out {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  z-index: 15;
+  cursor: ew-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.timeline-trim-handle-in {
+  background: linear-gradient(90deg, #10b981 0%, rgba(16, 185, 129, 0.3) 100%);
+  border-left: 3px solid #10b981;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  transform: translateX(-100%);
+}
+
+.timeline-trim-handle-out {
+  background: linear-gradient(90deg, rgba(220, 38, 38, 0.3) 0%, var(--danger) 100%);
+  border-right: 3px solid var(--danger);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.timeline-trim-handle-badge {
+  font-size: 8px;
+  font-weight: 700;
+  color: #ffffff;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+   Track Rows & Annotation Duration Blocks
+   -------------------------------------------------------------------------- */
+.timeline-tracks-area {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.timeline-track-row {
+  height: 28px;
+  position: relative;
+  border-bottom: 1px solid var(--line);
+  background-color: transparent;
+}
+
+.timeline-track-row:nth-child(even) {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+:root[data-theme="dark"] .timeline-track-row:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+/* Annotation Block on Timeline */
+.annotation-block {
+  position: absolute;
+  top: 3px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  cursor: grab;
+  z-index: 5;
+  box-shadow: var(--shadow);
+  transition: box-shadow var(--transition-fast), filter var(--transition-fast);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  user-select: none;
+  overflow: hidden;
+}
+
+.annotation-block:active {
+  cursor: grabbing;
+}
+
+.annotation-block:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 0 0 1px #ffffff;
+}
+
+.annotation-block.selected {
+  box-shadow: 0 0 0 2px var(--brand), 0 2px 8px rgba(0, 0, 0, 0.3);
+  z-index: 7;
+}
+
+.annotation-block-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Resize Handles on Annotation Block */
+.annotation-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  cursor: ew-resize !important;
+  background-color: rgba(255, 255, 255, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.85;
+  transition: opacity var(--transition-fast), background-color var(--transition-fast);
+  z-index: 10;
+}
+
+.annotation-resize-handle::after {
+  content: "";
+  width: 2px;
+  height: 10px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 1px;
+}
+
+.annotation-block:hover .annotation-resize-handle,
+.annotation-block.selected .annotation-resize-handle,
+.annotation-resize-handle:hover {
+  opacity: 1;
+  background-color: rgba(255, 255, 255, 0.55);
+}
+
+.annotation-resize-handle.left {
+  left: 0;
+  border-top-left-radius: var(--radius-sm);
+  border-bottom-left-radius: var(--radius-sm);
+}
+
+.annotation-resize-handle.right {
+  right: 0;
+  border-top-right-radius: var(--radius-sm);
+  border-bottom-right-radius: var(--radius-sm);
+}
+
+/* --------------------------------------------------------------------------
+   Multi-Clip Session Playlist Bar (Bottom)
+   -------------------------------------------------------------------------- */
+.playlist-bar {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background-color: var(--surface-2);
+  border-top: 1px solid var(--line);
+  overflow-x: auto;
+}
+
+.playlist-bar-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  margin-right: 4px;
+}
+
+.playlist-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+}
+
+.playlist-item:hover {
+  background: var(--surface-hover);
+  border-color: var(--line-hover);
+}
+
+.playlist-item.active {
+  background: var(--brand-subtle);
+  color: var(--brand);
+  border-color: var(--brand);
+  font-weight: 600;
+}
+
+.playlist-item-duration {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.playlist-item-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.playlist-item-close:hover {
+  background: var(--danger-subtle);
+  color: var(--danger);
+}

@@ -1,0 +1,19 @@
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor & IDE directories
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary / Video Screen Recording test files
+*.mp4
+*.webm
+*.mov
+*.mkv
+*.zip
+*.log
+*.tandaivideo
