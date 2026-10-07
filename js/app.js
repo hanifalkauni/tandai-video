@@ -245,7 +245,7 @@
       document.getElementById('shortcutsBtn')?.addEventListener('click', () => this.openShortcutsModal());
       document.getElementById('themeToggleBtn')?.addEventListener('click', () => this.toggleTheme());
       document.getElementById('splitClipBtn')?.addEventListener('click', () => this.splitAtPlayhead());
-      document.getElementById('rippleCutBtn')?.addEventListener('click', () => this.openRippleCutModal());
+      document.getElementById('rippleCutBtn')?.addEventListener('click', () => this.toggleCutMode());
       this._dom.zoomIndicator?.addEventListener('click', () => this._fitViewportToContainer());
     }
 
@@ -1351,7 +1351,13 @@
           this.deleteSelectedAnnotation();
         } else if (key === 'x') {
           e.preventDefault();
-          this.openRippleCutModal();
+          this.toggleCutMode();
+        } else if (key === 'escape') {
+          if (this.timeline && this.timeline.isCutMode) {
+            e.preventDefault();
+            this.timeline.toggleCutMode(false);
+            this.showToast('Mode potong dibatalkan', 'info');
+          }
         } else if (key === 'v') this.setTool('select');
         else if (key === 'h') this.setTool('hand');
         else if (key === 'r') this.setTool('rectangle');
@@ -1669,7 +1675,12 @@
         this._executeExport();
       });
 
-      // Ripple Cut Modal Actions
+      // Ripple Cut Actions (On-Timeline Sliders & Modal Fallback)
+      document.getElementById('confirmCutBtn')?.addEventListener('click', () => this.executeRippleCut());
+      document.getElementById('cancelCutBtn')?.addEventListener('click', () => {
+        this.timeline.toggleCutMode(false);
+        this.showToast('Mode potong dibatalkan', 'info');
+      });
       document.getElementById('executeRippleCutBtn')?.addEventListener('click', () => this.executeRippleCut());
       document.getElementById('rippleCutSetStartPlayhead')?.addEventListener('click', () => {
         const cur = this.videoEngine.currentTime;
@@ -1791,45 +1802,23 @@
       this._dom.shortcutsModal.classList.add('active');
     }
 
-    openRippleCutModal() {
-      const modal = document.getElementById('rippleCutModal');
-      if (!modal) return;
-
+    toggleCutMode() {
       const clip = this.session.getActiveClip();
-      const noVideoNotice = document.getElementById('rippleCutNoVideoNotice');
-      const activeForm = document.getElementById('rippleCutActiveForm');
-      const execBtn = document.getElementById('executeRippleCutBtn');
-
       if (!clip) {
-        if (noVideoNotice) noVideoNotice.hidden = false;
-        if (activeForm) activeForm.hidden = true;
-        if (execBtn) execBtn.disabled = true;
-        modal.classList.add('active');
+        this.showToast('Pilih atau rekam video terlebih dahulu untuk memotong bagian video.', 'warning');
         return;
       }
 
-      if (noVideoNotice) noVideoNotice.hidden = true;
-      if (activeForm) activeForm.hidden = false;
-      if (execBtn) execBtn.disabled = false;
-
-      const curT = this.videoEngine.currentTime;
-      const tStart = typeof clip.trimIn === 'number' ? clip.trimIn : 0;
-      const tEnd = typeof clip.trimOut === 'number' && clip.trimOut > 0 ? clip.trimOut : clip.duration;
-
-      // Suggest default cut range based on current playhead
-      let defaultStart = curT;
-      if (defaultStart < tStart + 0.1 || defaultStart >= tEnd - 0.5) {
-        defaultStart = tStart + Math.max(0.5, (tEnd - tStart) * 0.3);
+      const isNowActive = this.timeline.toggleCutMode();
+      if (isNowActive) {
+        this.showToast('Mode Potong aktif: geser slider AWAL & AKHIR pada timeline sambil melihat preview video.', 'info');
+      } else {
+        this.showToast('Mode potong ditutup.', 'info');
       }
-      let defaultEnd = Math.min(tEnd - 0.1, defaultStart + 5.0);
+    }
 
-      const startInput = document.getElementById('rippleCutStartInput');
-      const endInput = document.getElementById('rippleCutEndInput');
-      if (startInput) startInput.value = TV.VideoEngine.formatDuration(defaultStart);
-      if (endInput) endInput.value = TV.VideoEngine.formatDuration(defaultEnd);
-
-      this._updateRippleCutSummary();
-      modal.classList.add('active');
+    openRippleCutModal() {
+      this.toggleCutMode();
     }
 
     _updateRippleCutSummary() {
@@ -1866,23 +1855,33 @@
       const clip = this.session.getActiveClip();
       if (!clip) return;
 
-      const startInput = document.getElementById('rippleCutStartInput');
-      const endInput = document.getElementById('rippleCutEndInput');
-      const cutStart = TV.VideoEngine.parseTimeString(startInput.value);
-      const cutEnd = TV.VideoEngine.parseTimeString(endInput.value);
+      let cutStart = null;
+      let cutEnd = null;
+
+      if (this.timeline && this.timeline.isCutMode) {
+        cutStart = this.timeline.cutStart;
+        cutEnd = this.timeline.cutEnd;
+      } else {
+        const startInput = document.getElementById('rippleCutStartInput');
+        const endInput = document.getElementById('rippleCutEndInput');
+        if (startInput && endInput) {
+          cutStart = TV.VideoEngine.parseTimeString(startInput.value);
+          cutEnd = TV.VideoEngine.parseTimeString(endInput.value);
+        }
+      }
 
       const tStart = typeof clip.trimIn === 'number' ? clip.trimIn : 0;
       const tEnd = typeof clip.trimOut === 'number' && clip.trimOut > 0 ? clip.trimOut : clip.duration;
 
-      if (cutStart === null || cutEnd === null) {
+      if (cutStart === null || cutEnd === null || isNaN(cutStart) || isNaN(cutEnd)) {
         this.showToast('Format waktu tidak valid!', 'error');
         return;
       }
-      if (cutStart <= tStart + 0.05) {
+      if (cutStart <= tStart + 0.04) {
         this.showToast(`Waktu mulai harus lebih dari batas awal video (${TV.VideoEngine.formatDuration(tStart)})`, 'warning');
         return;
       }
-      if (cutEnd >= tEnd - 0.05) {
+      if (cutEnd >= tEnd - 0.04) {
         this.showToast(`Waktu selesai harus kurang dari batas akhir video (${TV.VideoEngine.formatDuration(tEnd)})`, 'warning');
         return;
       }
@@ -1897,6 +1896,9 @@
         return;
       }
 
+      if (this.timeline && this.timeline.isCutMode) {
+        this.timeline.toggleCutMode(false);
+      }
       document.getElementById('rippleCutModal')?.classList.remove('active');
 
       this.videoEngine.setActiveClip(clip);
@@ -1912,7 +1914,7 @@
       this._updatePlaybackUI();
       this._saveDraftToStorage();
 
-      this.showToast(`Bagian video berhasil dipotong dan langsung digabung menjadi satu!`, 'success');
+      this.showToast(`Bagian video berhasil dipotong dan otomatis disambung!`, 'success');
     }
 
     async _executeExport() {

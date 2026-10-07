@@ -592,3 +592,189 @@
   background: var(--danger-subtle);
   color: var(--danger);
 }
+
+/* --------------------------------------------------------------------------
+   Cut Mode (Non-destructive Visual Ripple Cut Sliders & Zone)
+   -------------------------------------------------------------------------- */
+#rippleCutBtn.active {
+  background-color: var(--danger) !important;
+  color: #fff !important;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+  animation: pulseCutBtn 1.8s infinite ease-in-out;
+}
+
+@keyframes pulseCutBtn {
+  0%, 100% { box-shadow: 0 0 4px rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 12px rgba(239, 68, 68, 0.8); }
+}
+
+.timeline-cut-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 10px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 2px 10px;
+}
+
+.cut-banner-left,
+.cut-banner-center,
+.cut-banner-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cut-banner-badge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  background: var(--danger);
+  color: #fff;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.cut-banner-desc {
+  font-size: 11px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.cut-pill {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.cut-arrow {
+  color: var(--danger);
+  font-weight: bold;
+}
+
+.cut-pill-duration {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--danger);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+/* Timeline Cut Zone Overlay */
+.timeline-cut-overlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  z-index: 18;
+}
+
+.timeline-cut-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(239, 68, 68, 0.22),
+    rgba(239, 68, 68, 0.22) 10px,
+    rgba(239, 68, 68, 0.38) 10px,
+    rgba(239, 68, 68, 0.38) 20px
+  );
+  border-top: 2px dashed #ef4444;
+  border-bottom: 2px dashed #ef4444;
+  pointer-events: auto;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast);
+}
+
+.timeline-cut-zone:active {
+  cursor: grabbing;
+}
+
+.timeline-cut-zone:hover {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(239, 68, 68, 0.3),
+    rgba(239, 68, 68, 0.3) 10px,
+    rgba(239, 68, 68, 0.48) 10px,
+    rgba(239, 68, 68, 0.48) 20px
+  );
+}
+
+.timeline-cut-zone-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(17, 24, 39, 0.88);
+  border: 1px solid rgba(239, 68, 68, 0.7);
+  padding: 2px 8px;
+  border-radius: 12px;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+}
+
+.timeline-cut-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 18px;
+  z-index: 22;
+  cursor: ew-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  touch-action: none;
+  pointer-events: auto;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  transition: filter var(--transition-fast);
+}
+
+.timeline-cut-handle:hover {
+  filter: brightness(1.25);
+}
+
+.timeline-cut-handle-start {
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.95) 0%, rgba(220, 38, 38, 0.75) 100%);
+  border-right: 3px solid #b91c1c;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.timeline-cut-handle-end {
+  transform: translateX(0);
+  background: linear-gradient(90deg, rgba(220, 38, 38, 0.75) 0%, rgba(239, 68, 68, 0.95) 100%);
+  border-left: 3px solid #b91c1c;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.timeline-cut-handle-badge {
+  font-size: 8px;
+  font-weight: 800;
+  color: #ffffff;
+  writing-mode: vertical-lr;
+  letter-spacing: 1px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}

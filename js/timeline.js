@@ -33,6 +33,25 @@
       this.trimDurationBadge = this.container.querySelector('#trimDurationBadge');
       this.playlistBarEl = this.container.querySelector('.playlist-bar');
 
+      // Cut Mode Elements
+      this.headerDefaultEl = document.getElementById('timelineHeaderDefault');
+      this.cutBannerEl = document.getElementById('timelineCutBanner');
+      this.cutOverlayEl = document.getElementById('timelineCutOverlay');
+      this.cutZoneEl = document.getElementById('timelineCutZone');
+      this.cutHandleStart = document.getElementById('timelineCutHandleStart');
+      this.cutHandleEnd = document.getElementById('timelineCutHandleEnd');
+      this.cutStartDisplay = document.getElementById('cutStartDisplay');
+      this.cutEndDisplay = document.getElementById('cutEndDisplay');
+      this.cutDurationDisplay = document.getElementById('cutDurationDisplay');
+      this.cutStartTooltip = document.getElementById('cutStartHandleTooltip');
+      this.cutEndTooltip = document.getElementById('cutEndHandleTooltip');
+      this.rippleCutBtn = document.getElementById('rippleCutBtn');
+
+      // Cut Mode State
+      this.isCutMode = false;
+      this.cutStart = 0;
+      this.cutEnd = 0;
+
       // State
       this.pixelsPerSecond = 80; // Baseline zoom level
       this.zoomScale = 1.0; // 0.5x, 1.0x, 2.0x, 4.0x
@@ -108,7 +127,29 @@
         }
       }, { passive: false });
 
-      // 4. Manual START & END Time Input Handlers (synced both ways with the slider)
+      // 4. Cut Mode Draggable Handles & Zone
+      if (this.cutHandleStart) {
+        this.cutHandleStart.addEventListener('pointerdown', (e) => {
+          e.stopPropagation();
+          this._startCutDrag('start', e);
+        });
+      }
+
+      if (this.cutHandleEnd) {
+        this.cutHandleEnd.addEventListener('pointerdown', (e) => {
+          e.stopPropagation();
+          this._startCutDrag('end', e);
+        });
+      }
+
+      if (this.cutZoneEl) {
+        this.cutZoneEl.addEventListener('pointerdown', (e) => {
+          e.stopPropagation();
+          this._startCutDrag('zone', e);
+        });
+      }
+
+      // 5. Manual START & END Time Input Handlers (synced both ways with the slider)
       const bindTrimInput = (input, type) => {
         if (!input) return;
         const commit = () => {
@@ -211,6 +252,158 @@
       window.addEventListener('pointerup', onUp);
     }
 
+    _startCutDrag(type, e) {
+      const clip = this._currentClip;
+      if (!clip || !this.isCutMode) return;
+
+      const maxDuration = clip.duration;
+      const startClientX = e.clientX;
+      const initialCutStart = this.cutStart;
+      const initialCutEnd = this.cutEnd;
+      const cutDuration = Math.max(0.1, initialCutEnd - initialCutStart);
+
+      const onMove = (ev) => {
+        const rect = this.contentWrapper.getBoundingClientRect();
+        const px = ev.clientX - rect.left;
+        const currentT = this._pxToTime(px);
+
+        if (type === 'start') {
+          const newStart = Math.max(0, Math.min(currentT, this.cutEnd - 0.05));
+          this.setCutRange(newStart, this.cutEnd);
+          // Realtime preview of cut start frame
+          if (this.engine) this.engine.currentTime = newStart;
+        } else if (type === 'end') {
+          const newEnd = Math.min(maxDuration, Math.max(this.cutStart + 0.05, currentT));
+          this.setCutRange(this.cutStart, newEnd);
+          // Realtime preview of cut end frame
+          if (this.engine) this.engine.currentTime = newEnd;
+        } else if (type === 'zone') {
+          const deltaPx = ev.clientX - startClientX;
+          const deltaT = this._pxToTime(deltaPx);
+          let newStart = initialCutStart + deltaT;
+          let newEnd = initialCutEnd + deltaT;
+
+          if (newStart < 0) {
+            newStart = 0;
+            newEnd = Math.min(maxDuration, cutDuration);
+          } else if (newEnd > maxDuration) {
+            newEnd = maxDuration;
+            newStart = Math.max(0, maxDuration - cutDuration);
+          }
+
+          this.setCutRange(newStart, newEnd);
+          if (this.engine) this.engine.currentTime = newStart;
+        }
+      };
+
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    }
+
+    toggleCutMode(forceState) {
+      const clip = this._currentClip;
+      if (!clip || clip.duration <= 0) {
+        return false;
+      }
+
+      const newState = typeof forceState === 'boolean' ? forceState : !this.isCutMode;
+      this.isCutMode = newState;
+
+      if (this.isCutMode) {
+        // Initialize cut start and end around current playhead
+        const curT = (this.engine && typeof this.engine.currentTime === 'number') ? this.engine.currentTime : 0;
+        const dur = clip.duration;
+        const defaultSpan = Math.max(0.5, Math.min(4.0, dur * 0.25));
+
+        let s = curT;
+        if (s + defaultSpan > dur) {
+          s = Math.max(0, dur - defaultSpan);
+        }
+        let e = Math.min(dur, s + defaultSpan);
+        if (e - s < 0.1) {
+          s = Math.max(0, dur * 0.2);
+          e = Math.min(dur, s + Math.max(0.5, dur * 0.2));
+        }
+
+        this.cutStart = s;
+        this.cutEnd = e;
+
+        if (this.headerDefaultEl) {
+          this.headerDefaultEl.hidden = true;
+          this.headerDefaultEl.style.display = 'none';
+        }
+        if (this.cutBannerEl) {
+          this.cutBannerEl.hidden = false;
+          this.cutBannerEl.style.display = 'flex';
+        }
+        if (this.cutOverlayEl) {
+          this.cutOverlayEl.hidden = false;
+          this.cutOverlayEl.style.display = 'block';
+        }
+        if (this.rippleCutBtn) this.rippleCutBtn.classList.add('active');
+
+        this._renderCutOverlay();
+        if (this.engine) this.engine.currentTime = this.cutStart;
+      } else {
+        if (this.cutBannerEl) {
+          this.cutBannerEl.hidden = true;
+          this.cutBannerEl.style.display = 'none';
+        }
+        if (this.headerDefaultEl) {
+          this.headerDefaultEl.hidden = false;
+          this.headerDefaultEl.style.display = 'flex';
+        }
+        if (this.cutOverlayEl) {
+          this.cutOverlayEl.hidden = true;
+          this.cutOverlayEl.style.display = 'none';
+        }
+        if (this.rippleCutBtn) this.rippleCutBtn.classList.remove('active');
+      }
+
+      return this.isCutMode;
+    }
+
+    setCutRange(start, end) {
+      const clip = this._currentClip;
+      const maxDur = clip ? clip.duration : 1000;
+      this.cutStart = Math.max(0, Math.min(start, maxDur));
+      this.cutEnd = Math.max(this.cutStart + 0.05, Math.min(end, maxDur));
+      this._renderCutOverlay();
+    }
+
+    _renderCutOverlay() {
+      if (!this.cutOverlayEl || !this._currentClip) return;
+      const startPx = this._timeToPx(this.cutStart);
+      const endPx = this._timeToPx(this.cutEnd);
+      const widthPx = Math.max(2, endPx - startPx);
+
+      if (this.cutZoneEl) {
+        this.cutZoneEl.style.left = `${startPx}px`;
+        this.cutZoneEl.style.width = `${widthPx}px`;
+      }
+      if (this.cutHandleStart) {
+        this.cutHandleStart.style.left = `${startPx}px`;
+      }
+      if (this.cutHandleEnd) {
+        this.cutHandleEnd.style.left = `${endPx}px`;
+      }
+
+      const fmtStart = TV.VideoEngine.formatDuration(this.cutStart);
+      const fmtEnd = TV.VideoEngine.formatDuration(this.cutEnd);
+      const durSec = Math.max(0, this.cutEnd - this.cutStart).toFixed(2);
+
+      if (this.cutStartDisplay) this.cutStartDisplay.textContent = `AWAL: ${fmtStart}`;
+      if (this.cutEndDisplay) this.cutEndDisplay.textContent = `AKHIR: ${fmtEnd}`;
+      if (this.cutDurationDisplay) this.cutDurationDisplay.textContent = `Dibuang: ${durSec}s`;
+      if (this.cutStartTooltip) this.cutStartTooltip.textContent = fmtStart;
+      if (this.cutEndTooltip) this.cutEndTooltip.textContent = fmtEnd;
+    }
+
     /* --------------------------------------------------------------------------
        Update & Render Timeline View
        -------------------------------------------------------------------------- */
@@ -260,6 +453,11 @@
 
       // 5. Render Playlist Bar
       this._renderPlaylist(projectSession);
+
+      // 6. Update Cut Overlay if active
+      if (this.isCutMode) {
+        this._renderCutOverlay();
+      }
     }
 
     updateView() {
@@ -287,6 +485,9 @@
     }
 
     _renderEmpty() {
+      if (this.isCutMode) {
+        this.toggleCutMode(false);
+      }
       this.rulerEl.innerHTML = '';
       this.tracksAreaEl.innerHTML = '<div style="padding: 20px; font-size: 11px; color: var(--text-muted);">Tidak ada video aktif.</div>';
       this.trackHeadersEl.innerHTML = '<div class="track-header-ruler-spacer">TRACKS</div>';

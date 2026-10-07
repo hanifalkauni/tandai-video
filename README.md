@@ -22,7 +22,7 @@ Semua proses decoding, rendering, sensor, dan ekspor dilakukan **100% di peramba
   - **Multi-Clip Session Playlist**: Kelola beberapa rekaman video sekaligus dalam satu sesi pengujian QA.
 - ✂️ **Pecah (Split) & Potong Video Otomatis Gabung (Cut)**:
   - **Pecah Klip (Split)**: Bagi klip video atau anotasi aktif menjadi dua di posisi playhead saat ini (`C` / `K`).
-  - **Potong Video (Cut)**: Buang rentang bagian tengah video yang tidak diinginkan (misal menit `02:00` s/d `03:00`) dan **langsung otomatis menyambungkan** bagian sebelum dan sesudahnya menjadi 1 video utuh di timeline (`X`). Pemutar melompati potongan secara instan (*seamless jump cut*) dan video hasil ekspor langsung berupa 1 berkas terpadu tanpa bagian yang dipotong.
+  - **Potong Video (Cut) dengan 2 Slider Interaktif & Live Preview**: Cukup klik tombol Potong (`X`) untuk menampilkan 2 slider merah langsung di timeline (slider **AWAL** dan **AKHIR**) dengan area potong yang diarsir. Anda dapat menggeser kedua slider sambil melihat cuplikan frame video secara *realtime* tanpa perlu menghafal atau mengetik detik secara manual. Klik **"Potong & Sambung"** untuk membuang rentang tersebut dan bagian sebelum serta sesudahnya akan langsung otomatis tersambung menjadi satu video utuh.
 - 🖐️ **Alat Tangan (Hand Pan) & Zoom Berpusat Kursor**:
   - Geser viewport secara leluasa saat kondisi zoom (25% - 400%) dengan tombol **Alat Tangan (`H`)** atau tahan **`Spasi + Drag`**.
   - Navigasi zoom in/out dengan `Ctrl + Scroll` yang berpusat langsung pada koordinat kursor mouse (*cursor-anchored zoom*).

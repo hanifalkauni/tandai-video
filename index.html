@@ -13,7 +13,7 @@
 
   <!-- Core Stylesheets -->
   <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/timeline.css">
+  <link rel="stylesheet" href="css/timeline.css?v=1.3.4">
   <link rel="stylesheet" href="css/components.css">
 </head>
 <body>
@@ -340,35 +340,55 @@
          ==================================================================== -->
     <footer class="app-timeline">
       <div class="timeline-header">
-        <div class="timeline-header-left">
-          <span class="timeline-title">Timeline & Tracks</span>
-          <button class="btn btn-ghost btn-sm" id="splitClipBtn" title="Pecah klip video atau anotasi di posisi saat ini (Shortcut: C / K)" style="margin-left: 6px; padding: 2px 8px; font-size: 11px;">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
-            <span>Pecah (Split)</span>
-          </button>
-          <button class="btn btn-ghost btn-sm" id="rippleCutBtn" title="Potong rentang video & sambung otomatis (Shortcut: X)" style="margin-left: 4px; padding: 2px 8px; font-size: 11px; color: #ef4444;">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-            <span>Potong (Cut)</span>
-          </button>
-        </div>
+        <div class="timeline-header-default" id="timelineHeaderDefault" style="display: flex; width: 100%; align-items: center; justify-content: space-between;">
+          <div class="timeline-header-left">
+            <span class="timeline-title">Timeline & Tracks</span>
+            <button class="btn btn-ghost btn-sm" id="splitClipBtn" title="Pecah klip video atau anotasi di posisi saat ini (Shortcut: C / K)" style="margin-left: 6px; padding: 2px 8px; font-size: 11px;">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+              <span>Pecah (Split)</span>
+            </button>
+            <button class="btn btn-ghost btn-sm" id="rippleCutBtn" title="Potong rentang video & sambung otomatis (Shortcut: X)" style="margin-left: 4px; padding: 2px 8px; font-size: 11px; color: #ef4444;">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+              <span>Potong (Cut)</span>
+            </button>
+          </div>
 
-        <div class="timeline-header-center">
-          <div class="trim-time-inputs" title="Atur batas pemangkasan secara manual atau visual">
-            <span class="trim-input-badge trim-badge-start" title="Waktu Mulai Pemangkasan (Shortcut: I)">START</span>
-            <input type="text" id="trimStartInput" class="trim-time-field" value="00:00.00" title="Ketik waktu mulai (contoh: 00:05.50 atau 5.5) lalu tekan Enter" spellcheck="false" autocomplete="off">
-            <span class="trim-arrow">➔</span>
-            <span class="trim-input-badge trim-badge-end" title="Waktu Akhir Pemangkasan (Shortcut: O)">END</span>
-            <input type="text" id="trimEndInput" class="trim-time-field" value="00:00.00" title="Ketik waktu akhir (contoh: 00:25.00 atau 25) lalu tekan Enter" spellcheck="false" autocomplete="off">
-            <span class="trim-duration-badge" id="trimDurationBadge" title="Total Durasi Potongan Aktif">Durasi: 00:00.00</span>
+          <div class="timeline-header-center">
+            <div class="trim-time-inputs" title="Atur batas pemangkasan secara manual atau visual">
+              <span class="trim-input-badge trim-badge-start" title="Waktu Mulai Pemangkasan (Shortcut: I)">START</span>
+              <input type="text" id="trimStartInput" class="trim-time-field" value="00:00.00" title="Ketik waktu mulai (contoh: 00:05.50 atau 5.5) lalu tekan Enter" spellcheck="false" autocomplete="off">
+              <span class="trim-arrow">➔</span>
+              <span class="trim-input-badge trim-badge-end" title="Waktu Akhir Pemangkasan (Shortcut: O)">END</span>
+              <input type="text" id="trimEndInput" class="trim-time-field" value="00:00.00" title="Ketik waktu akhir (contoh: 00:25.00 atau 25) lalu tekan Enter" spellcheck="false" autocomplete="off">
+              <span class="trim-duration-badge" id="trimDurationBadge" title="Total Durasi Potongan Aktif">Durasi: 00:00.00</span>
+            </div>
+          </div>
+
+          <div class="timeline-header-right">
+            <div class="timeline-zoom-controls">
+              <span style="font-size: 10px; color: var(--text-muted);">Skala:</span>
+              <button class="btn btn-ghost btn-sm" onclick="app.timeline.setZoom(0.5)">0.5x</button>
+              <button class="btn btn-ghost btn-sm" onclick="app.timeline.setZoom(1.0)">1.0x</button>
+              <button class="btn btn-ghost btn-sm" onclick="app.timeline.setZoom(2.0)">2.0x</button>
+            </div>
           </div>
         </div>
 
-        <div class="timeline-header-right">
-          <div class="timeline-zoom-controls">
-            <span style="font-size: 10px; color: var(--text-muted);">Skala:</span>
-            <button class="btn btn-ghost btn-sm" onclick="app.timeline.setZoom(0.5)">0.5x</button>
-            <button class="btn btn-ghost btn-sm" onclick="app.timeline.setZoom(1.0)">1.0x</button>
-            <button class="btn btn-ghost btn-sm" onclick="app.timeline.setZoom(2.0)">2.0x</button>
+        <!-- Cut Mode Banner (Active when Cut mode is ON) -->
+        <div class="timeline-cut-banner" id="timelineCutBanner" hidden>
+          <div class="timeline-cut-banner-title">
+            <span class="cut-banner-badge">✂️ MODE POTONG</span>
+            <span>Tarik 2 slider merah pada timeline untuk menentukan detik awal & akhir:</span>
+          </div>
+          <div class="timeline-cut-banner-times">
+            <span class="cut-time-pill cut-time-start" id="cutStartDisplay">AWAL: 00:00.00</span>
+            <span class="cut-arrow">➔</span>
+            <span class="cut-time-pill cut-time-end" id="cutEndDisplay">AKHIR: 00:00.00</span>
+            <span class="cut-duration-pill" id="cutDurationDisplay">Dibuang: 0.00s</span>
+          </div>
+          <div class="timeline-cut-banner-actions">
+            <button class="btn btn-ghost btn-sm" id="cancelCutBtn" title="Batalkan pemotongan (Esc)">✕ Batal</button>
+            <button class="btn btn-danger btn-sm" id="confirmCutBtn" title="Eksekusi potong dan sambung otomatis">✂️ Potong & Sambung</button>
           </div>
         </div>
       </div>
@@ -394,6 +414,21 @@
               <span class="timeline-trim-handle-badge">END</span>
             </div>
             <div class="timeline-trim-dimmer-right"></div>
+
+            <!-- Interactive Cut Mode Overlay with 2 Draggable Sliders -->
+            <div class="timeline-cut-overlay" id="timelineCutOverlay" hidden>
+              <div class="timeline-cut-zone" id="timelineCutZone" title="Geser untuk memindahkan posisi rentang potong">
+                <span class="timeline-cut-zone-label">✂️ Area Dihapus (Ripple Cut)</span>
+              </div>
+              <div class="timeline-cut-handle timeline-cut-handle-start" id="timelineCutHandleStart" title="Tarik untuk mengatur Titik Awal Potong">
+                <span class="timeline-cut-handle-badge">AWAL</span>
+                <span class="trim-handle-time-tooltip" id="cutStartHandleTooltip">00:00.00</span>
+              </div>
+              <div class="timeline-cut-handle timeline-cut-handle-end" id="timelineCutHandleEnd" title="Tarik untuk mengatur Titik Akhir Potong">
+                <span class="timeline-cut-handle-badge">AKHIR</span>
+                <span class="trim-handle-time-tooltip" id="cutEndHandleTooltip">00:00.00</span>
+              </div>
+            </div>
 
             <!-- Annotation Tracks -->
             <div class="timeline-tracks-area"></div>
@@ -625,11 +660,11 @@
   <div class="toast-container"></div>
 
   <!-- JavaScript Modules in Dependency Order -->
-  <script src="js/export.js?v=1.3.3"></script>
-  <script src="js/model.js?v=1.3.3"></script>
-  <script src="js/video-engine.js?v=1.3.3"></script>
-  <script src="js/render.js?v=1.3.3"></script>
-  <script src="js/timeline.js?v=1.3.3"></script>
-  <script src="js/app.js?v=1.3.3"></script>
+  <script src="js/export.js?v=1.3.4"></script>
+  <script src="js/model.js?v=1.3.4"></script>
+  <script src="js/video-engine.js?v=1.3.4"></script>
+  <script src="js/render.js?v=1.3.4"></script>
+  <script src="js/timeline.js?v=1.3.4"></script>
+  <script src="js/app.js?v=1.3.4"></script>
 </body>
 </html>
