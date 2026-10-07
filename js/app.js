@@ -1668,6 +1668,10 @@
       });
       document.getElementById('rippleCutStartInput')?.addEventListener('input', () => this._updateRippleCutSummary());
       document.getElementById('rippleCutEndInput')?.addEventListener('input', () => this._updateRippleCutSummary());
+      document.getElementById('rippleCutOpenVideoBtn')?.addEventListener('click', () => {
+        document.getElementById('rippleCutModal')?.classList.remove('active');
+        document.getElementById('videoFileInput')?.click();
+      });
 
       // Project JSON Import/Export
       document.getElementById('exportJsonBtn')?.addEventListener('click', () => {
@@ -1767,11 +1771,26 @@
     }
 
     openRippleCutModal() {
+      const modal = document.getElementById('rippleCutModal');
+      if (!modal) return;
+
       const clip = this.session.getActiveClip();
+      const noVideoNotice = document.getElementById('rippleCutNoVideoNotice');
+      const activeForm = document.getElementById('rippleCutActiveForm');
+      const execBtn = document.getElementById('executeRippleCutBtn');
+
       if (!clip) {
-        this.showToast('Muat video terlebih dahulu!', 'warning');
+        if (noVideoNotice) noVideoNotice.hidden = false;
+        if (activeForm) activeForm.hidden = true;
+        if (execBtn) execBtn.disabled = true;
+        modal.classList.add('active');
         return;
       }
+
+      if (noVideoNotice) noVideoNotice.hidden = true;
+      if (activeForm) activeForm.hidden = false;
+      if (execBtn) execBtn.disabled = false;
+
       const curT = this.videoEngine.currentTime;
       const tStart = typeof clip.trimIn === 'number' ? clip.trimIn : 0;
       const tEnd = typeof clip.trimOut === 'number' && clip.trimOut > 0 ? clip.trimOut : clip.duration;
@@ -1789,7 +1808,7 @@
       if (endInput) endInput.value = TV.VideoEngine.formatDuration(defaultEnd);
 
       this._updateRippleCutSummary();
-      document.getElementById('rippleCutModal')?.classList.add('active');
+      modal.classList.add('active');
     }
 
     _updateRippleCutSummary() {
