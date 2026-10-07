@@ -460,6 +460,14 @@
       return false;
     }
 
+    clone(customConfig = {}) {
+      const json = this.toJSON();
+      json.id = TV.generateId('clip');
+      json.blobUrl = this.blobUrl;
+      json.file = this.file;
+      return new VideoClip(Object.assign(json, customConfig));
+    }
+
     toJSON() {
       return {
         id: this.id,
@@ -508,6 +516,11 @@
     addClip(clip) {
       this.clips.push(clip);
       this.activeClipIndex = this.clips.length - 1;
+    }
+
+    insertClip(index, clip) {
+      this.clips.splice(index, 0, clip);
+      this.activeClipIndex = index;
     }
 
     removeClip(index) {

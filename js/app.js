@@ -209,12 +209,13 @@
         });
       });
 
-      // Quick Action Buttons in Header
+      // Quick Action Buttons in Header & Timeline
       document.getElementById('watermarkBtn')?.addEventListener('click', () => this.openWatermarkModal());
       document.getElementById('exportBtn')?.addEventListener('click', () => this.openExportModal());
       document.getElementById('projectBtn')?.addEventListener('click', () => this.openProjectModal());
       document.getElementById('shortcutsBtn')?.addEventListener('click', () => this.openShortcutsModal());
       document.getElementById('themeToggleBtn')?.addEventListener('click', () => this.toggleTheme());
+      document.getElementById('splitClipBtn')?.addEventListener('click', () => this.splitAtPlayhead());
     }
 
     setTool(toolName) {
@@ -801,6 +802,21 @@
         this._saveDraftToStorage();
       });
 
+      // Split Annotation Button in Inspector
+      document.getElementById('splitAnnotationInspectorBtn')?.addEventListener('click', () => {
+        if (!this.selectedAnnotationId) return;
+        const clip = this.session.getActiveClip();
+        const ann = clip ? clip.getAnnotation(this.selectedAnnotationId) : null;
+        if (ann) {
+          const curT = this.videoEngine.currentTime;
+          if (curT > ann.tStart + 0.05 && curT < ann.tEnd - 0.05) {
+            this.splitSelectedAnnotation(ann, curT);
+          } else {
+            this.showToast(`Pindahkan playhead ke antara ${TV.VideoEngine.formatDuration(ann.tStart)} dan ${TV.VideoEngine.formatDuration(ann.tEnd)} untuk membagi anotasi ini.`, 'warning');
+          }
+        }
+      });
+
       // Delete button in inspector
       document.getElementById('deleteAnnotationBtn')?.addEventListener('click', () => {
         this.deleteSelectedAnnotation();
@@ -969,6 +985,131 @@
       }
     }
 
+    /* --------------------------------------------------------------------------
+       Split / Cut Video & Annotations (Razor Tool)
+       -------------------------------------------------------------------------- */
+    splitAtPlayhead() {
+      const clip = this.session.getActiveClip();
+      if (!clip || clip.duration <= 0) {
+        this.showToast('Muat video terlebih dahulu untuk membagi klip.', 'info');
+        return;
+      }
+
+      const curT = this.videoEngine.currentTime;
+
+      // 1. If an annotation is selected and playhead is within its duration, split the annotation
+      if (this.selectedAnnotationId) {
+        const ann = clip.getAnnotation(this.selectedAnnotationId);
+        if (ann && curT > ann.tStart + 0.05 && curT < ann.tEnd - 0.05) {
+          this.splitSelectedAnnotation(ann, curT);
+          return;
+        }
+      }
+
+      // 2. Otherwise split the video clip into two sequential parts
+      this.splitCurrentClip(curT);
+    }
+
+    splitSelectedAnnotation(ann, splitTime) {
+      const clip = this.session.getActiveClip();
+      if (!clip || !ann) return;
+
+      const origEnd = ann.tEnd;
+      ann.tEnd = splitTime;
+
+      const cloned = ann.clone();
+      cloned.tStart = splitTime;
+      cloned.tEnd = origEnd;
+      clip.addAnnotation(cloned);
+
+      this.selectedAnnotationId = cloned.id;
+      clip.saveHistorySnapshot();
+
+      this.timeline.render({
+        projectSession: this.session,
+        currentTime: splitTime,
+        selectedAnnotationId: cloned.id
+      });
+      this._updateInspector();
+      this._saveDraftToStorage();
+
+      this.showToast(`Anotasi berhasil dipotong di detik ${TV.VideoEngine.formatDuration(splitTime)}!`, 'success');
+    }
+
+    splitCurrentClip(splitTime) {
+      const clipA = this.session.getActiveClip();
+      if (!clipA) return;
+
+      const tStart = typeof clipA.trimIn === 'number' ? clipA.trimIn : 0;
+      const tEnd = typeof clipA.trimOut === 'number' ? clipA.trimOut : clipA.duration;
+
+      if (splitTime <= tStart + 0.1 || splitTime >= tEnd - 0.1) {
+        this.showToast(`Pindahkan playhead ke antara ${TV.VideoEngine.formatDuration(tStart)} dan ${TV.VideoEngine.formatDuration(tEnd)} untuk memotong klip.`, 'warning');
+        return;
+      }
+
+      const origTrimOut = tEnd;
+      const baseName = (clipA.name || 'Video').replace(/\s*\(Bagian\s*\d+\)/i, '').replace(/\s*\(Part\s*\d+\)/i, '');
+      const curIndex = this.session.clips.indexOf(clipA);
+
+      // Distribute annotations between Part 1 and Part 2
+      const annotationsForA = [];
+      const annotationsForB = [];
+
+      clipA.annotations.forEach((ann) => {
+        if (ann.tEnd <= splitTime) {
+          annotationsForA.push(ann);
+        } else if (ann.tStart >= splitTime) {
+          annotationsForB.push(ann);
+        } else {
+          // Crosses split point: divide into two annotations
+          const partA = ann;
+          const origEnd = ann.tEnd;
+          partA.tEnd = splitTime;
+          annotationsForA.push(partA);
+
+          const partB = ann.clone();
+          partB.tStart = splitTime;
+          partB.tEnd = origEnd;
+          annotationsForB.push(partB);
+        }
+      });
+
+      // Update Clip A (Part 1)
+      clipA.name = `${baseName} (Bagian 1)`;
+      clipA.trimOut = splitTime;
+      clipA.annotations = annotationsForA;
+      clipA.saveHistorySnapshot();
+
+      // Create Clip B (Part 2)
+      const partNum = curIndex + 2;
+      const clipB = new TV.VideoClip({
+        name: `${baseName} (Bagian ${partNum})`,
+        file: clipA.file,
+        blobUrl: clipA.blobUrl,
+        duration: clipA.duration,
+        width: clipA.width,
+        height: clipA.height,
+        fps: clipA.fps,
+        trimIn: splitTime,
+        trimOut: origTrimOut,
+        annotations: annotationsForB
+      });
+
+      this.session.insertClip(curIndex + 1, clipB);
+      this.session.activeClipIndex = curIndex + 1;
+
+      this.timeline.render({
+        projectSession: this.session,
+        currentTime: splitTime,
+        selectedAnnotationId: null
+      });
+      this._updateInspector();
+      this._saveDraftToStorage();
+
+      this.showToast(`Klip berhasil dibagi di ${TV.VideoEngine.formatDuration(splitTime)}! (Bagian 1 & Bagian ${partNum})`, 'success');
+    }
+
     _updateInspector() {
       const clip = this.session.getActiveClip();
       const ann = clip && this.selectedAnnotationId ? clip.getAnnotation(this.selectedAnnotationId) : null;
@@ -1117,6 +1258,9 @@
         } else if (isCtrl && key === 'c') {
           e.preventDefault();
           this.copyFrameSnapshot();
+        } else if ((!isCtrl && (key === 'c' || key === 'k')) || (isCtrl && key === 'k')) {
+          e.preventDefault();
+          this.splitAtPlayhead();
         } else if (isCtrl && key === 's') {
           e.preventDefault();
           this.saveFrameSnapshotPNG();
@@ -1350,10 +1494,16 @@
       this.session.activeClipIndex = index;
       const clip = this.session.getActiveClip();
       if (clip && clip.blobUrl) {
-        this.videoEngine.loadSource(clip.blobUrl);
+        const startT = typeof clip.trimIn === 'number' ? clip.trimIn : 0;
+        if (this._dom.video.src === clip.blobUrl) {
+          this.videoEngine.currentTime = startT;
+        } else {
+          this.videoEngine.loadSource(clip.blobUrl);
+          this.videoEngine.currentTime = startT;
+        }
         this.timeline.render({
           projectSession: this.session,
-          currentTime: 0,
+          currentTime: startT,
           selectedAnnotationId: null
         });
       }
