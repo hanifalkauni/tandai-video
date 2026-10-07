@@ -110,13 +110,20 @@
       this.videoEngine.on('loadedmetadata', (meta) => {
         const clip = this.session.getActiveClip();
         if (clip) {
-          clip.duration = meta.duration;
+          clip.rawDuration = meta.duration;
+          if (!clip.segments || clip.segments.length === 0) {
+            clip.segments = [{ start: 0, end: meta.duration }];
+          } else if (clip.segments.length === 1 && clip.segments[0].end === 0) {
+            clip.segments[0].end = meta.duration;
+          }
+          clip.duration = clip.getDuration();
           clip.width = meta.width;
           clip.height = meta.height;
           clip.fps = meta.fps;
           // Keep trim restored from a saved project; default to full length otherwise
-          if (!clip.trimOut || clip.trimOut > meta.duration) clip.trimOut = meta.duration;
+          if (!clip.trimOut || clip.trimOut > clip.duration) clip.trimOut = clip.duration;
           if (clip.trimIn >= clip.trimOut) clip.trimIn = 0;
+          this.videoEngine.setActiveClip(clip);
           this.renderer.setDimensions(meta.width, meta.height);
           this._fitViewportToContainer();
           this._dom.emptyDropzone.hidden = true;
@@ -862,7 +869,7 @@
           if (curT > ann.tStart + 0.05 && curT < ann.tEnd - 0.05) {
             this.splitSelectedAnnotation(ann, curT);
           } else {
-            this.showToast(`Pindahkan playhead ke antara ${TV.VideoEngine.formatDuration(ann.tStart)} dan ${TV.VideoEngine.formatDuration(ann.tEnd)} untuk membagi anotasi ini.`, 'warning');
+            this.showToast(`Pindahkan playhead ke antara ${TV.VideoEngine.formatDuration(ann.tStart)} dan ${TV.VideoEngine.formatDuration(ann.tEnd)} untuk memecah anotasi ini.`, 'warning');
           }
         }
       });
@@ -1041,7 +1048,7 @@
     splitAtPlayhead() {
       const clip = this.session.getActiveClip();
       if (!clip || clip.duration <= 0) {
-        this.showToast('Muat video terlebih dahulu untuk membagi klip.', 'info');
+        this.showToast('Muat video terlebih dahulu untuk memecah klip.', 'info');
         return;
       }
 
@@ -1083,7 +1090,7 @@
       this._updateInspector();
       this._saveDraftToStorage();
 
-      this.showToast(`Anotasi berhasil dipotong di detik ${TV.VideoEngine.formatDuration(splitTime)}!`, 'success');
+      this.showToast(`Anotasi berhasil dipecah di detik ${TV.VideoEngine.formatDuration(splitTime)}!`, 'success');
     }
 
     splitCurrentClip(splitTime) {
@@ -1094,7 +1101,7 @@
       const tEnd = typeof clipA.trimOut === 'number' ? clipA.trimOut : clipA.duration;
 
       if (splitTime <= tStart + 0.1 || splitTime >= tEnd - 0.1) {
-        this.showToast(`Pindahkan playhead ke antara ${TV.VideoEngine.formatDuration(tStart)} dan ${TV.VideoEngine.formatDuration(tEnd)} untuk memotong klip.`, 'warning');
+        this.showToast(`Pindahkan playhead ke antara ${TV.VideoEngine.formatDuration(tStart)} dan ${TV.VideoEngine.formatDuration(tEnd)} untuk memecah klip.`, 'warning');
         return;
       }
 
@@ -1157,7 +1164,7 @@
       this._updateInspector();
       this._saveDraftToStorage();
 
-      this.showToast(`Klip berhasil dibagi di ${TV.VideoEngine.formatDuration(splitTime)}! (Bagian 1 & Bagian ${partNum})`, 'success');
+      this.showToast(`Klip berhasil dipecah di ${TV.VideoEngine.formatDuration(splitTime)}! (Bagian 1 & Bagian ${partNum})`, 'success');
     }
 
     _updateInspector() {
@@ -1587,6 +1594,7 @@
         return;
       }
       if (clip && clip.blobUrl) {
+        this.videoEngine.setActiveClip(clip);
         this.pendingRelinkClip = null;
         this._resetDropzoneText();
         this._dom.emptyDropzone.hidden = true;
@@ -1825,122 +1833,73 @@
       const tEnd = typeof clip.trimOut === 'number' && clip.trimOut > 0 ? clip.trimOut : clip.duration;
 
       if (cStart === null || cEnd === null || cStart < tStart || cEnd > tEnd || cEnd <= cStart) {
-        summaryEl.innerHTML = `<span style="color:var(--danger, #ef4444);">Rentang tidak valid: pastikan waktu mulai lebih kecil dari waktu selesai, dan berada di dalam batas klip saat ini (${TV.VideoEngine.formatDuration(tStart)} – ${TV.VideoEngine.formatDuration(tEnd)}).</span>`;
+        summaryEl.innerHTML = `<span style="color:var(--danger, #ef4444);">Rentang tidak valid: pastikan waktu mulai lebih kecil dari waktu selesai, dan berada di dalam batas video saat ini (${TV.VideoEngine.formatDuration(tStart)} – ${TV.VideoEngine.formatDuration(tEnd)}).</span>`;
         return;
       }
 
       const cutDur = cEnd - cStart;
-      const part1Dur = cStart - tStart;
-      const part2Dur = tEnd - cEnd;
-      const totalRemaining = part1Dur + part2Dur;
+      const totalRemaining = clip.duration - cutDur;
 
       summaryEl.innerHTML = `
         <div style="display:flex; flex-direction:column; gap:4px;">
-          <div><strong style="color:var(--danger, #ef4444);">✂️ Dibuang:</strong> ${TV.VideoEngine.formatDuration(cStart)} s/d ${TV.VideoEngine.formatDuration(cEnd)} <span style="color:var(--text-muted);">(Durasi dibuang: ${TV.VideoEngine.formatDuration(cutDur)})</span></div>
-          <div><strong style="color:var(--brand, #10b981);">▶️ Hasil tersambung:</strong> Bagian 1 (${TV.VideoEngine.formatDuration(tStart)} – ${TV.VideoEngine.formatDuration(cStart)}) + Bagian 2 (${TV.VideoEngine.formatDuration(cEnd)} – ${TV.VideoEngine.formatDuration(tEnd)})</div>
-          <div style="font-weight:700; color:var(--text-primary); margin-top:2px;">Total durasi akhir: ${TV.VideoEngine.formatDuration(totalRemaining)}</div>
+          <div><strong style="color:var(--danger, #ef4444);">✂️ Dipotong:</strong> ${TV.VideoEngine.formatDuration(cStart)} s/d ${TV.VideoEngine.formatDuration(cEnd)} <span style="color:var(--text-muted);">(Durasi dipotong: ${TV.VideoEngine.formatDuration(cutDur)})</span></div>
+          <div><strong style="color:var(--brand, #10b981);">▶️ Otomatis Gabung:</strong> Bagian sebelum & sesudah langsung menyatu menjadi 1 video</div>
+          <div style="font-weight:700; color:var(--text-primary); margin-top:2px;">Total durasi akhir video: ${TV.VideoEngine.formatDuration(totalRemaining)}</div>
         </div>
       `;
     }
 
     executeRippleCut() {
-      const clipA = this.session.getActiveClip();
-      if (!clipA) return;
+      const clip = this.session.getActiveClip();
+      if (!clip) return;
 
       const startInput = document.getElementById('rippleCutStartInput');
       const endInput = document.getElementById('rippleCutEndInput');
       const cutStart = TV.VideoEngine.parseTimeString(startInput.value);
       const cutEnd = TV.VideoEngine.parseTimeString(endInput.value);
 
-      const tStart = typeof clipA.trimIn === 'number' ? clipA.trimIn : 0;
-      const tEnd = typeof clipA.trimOut === 'number' && clipA.trimOut > 0 ? clipA.trimOut : clipA.duration;
+      const tStart = typeof clip.trimIn === 'number' ? clip.trimIn : 0;
+      const tEnd = typeof clip.trimOut === 'number' && clip.trimOut > 0 ? clip.trimOut : clip.duration;
 
       if (cutStart === null || cutEnd === null) {
         this.showToast('Format waktu tidak valid!', 'error');
         return;
       }
       if (cutStart <= tStart + 0.05) {
-        this.showToast(`Waktu mulai harus lebih dari batas awal klip (${TV.VideoEngine.formatDuration(tStart)})`, 'warning');
+        this.showToast(`Waktu mulai harus lebih dari batas awal video (${TV.VideoEngine.formatDuration(tStart)})`, 'warning');
         return;
       }
       if (cutEnd >= tEnd - 0.05) {
-        this.showToast(`Waktu selesai harus kurang dari batas akhir klip (${TV.VideoEngine.formatDuration(tEnd)})`, 'warning');
+        this.showToast(`Waktu selesai harus kurang dari batas akhir video (${TV.VideoEngine.formatDuration(tEnd)})`, 'warning');
         return;
       }
       if (cutEnd - cutStart < 0.1) {
-        this.showToast('Rentang yang dibuang minimal 0.1 detik!', 'warning');
+        this.showToast('Rentang yang dipotong minimal 0.1 detik!', 'warning');
         return;
       }
 
-      const origTrimOut = tEnd;
-      const baseName = (clipA.name || 'Video').replace(/\s*\(Bagian\s*\d+\)/i, '').replace(/\s*\(Part\s*\d+\)/i, '');
-      const curIndex = this.session.clips.indexOf(clipA);
-
-      // Distribute annotations:
-      // Part 1 gets annotations before cutStart
-      // Part 2 gets annotations after cutEnd
-      // Annotations completely inside [cutStart, cutEnd] are discarded!
-      const annotationsForA = [];
-      const annotationsForB = [];
-
-      clipA.annotations.forEach((ann) => {
-        if (ann.tEnd <= cutStart) {
-          annotationsForA.push(ann);
-        } else if (ann.tStart >= cutEnd) {
-          annotationsForB.push(ann);
-        } else {
-          // Crosses boundaries
-          if (ann.tStart < cutStart) {
-            const partA = ann.clone();
-            partA.tEnd = cutStart;
-            annotationsForA.push(partA);
-          }
-          if (ann.tEnd > cutEnd) {
-            const partB = ann.clone();
-            partB.tStart = cutEnd;
-            annotationsForB.push(partB);
-          }
-        }
-      });
-
-      // Update Part 1 (clipA)
-      clipA.name = `${baseName} (Bagian 1)`;
-      clipA.trimOut = cutStart;
-      clipA.annotations = annotationsForA;
-      clipA.saveHistorySnapshot();
-
-      // Create Part 2 (clipB)
-      const partNum = curIndex + 2;
-      const clipB = new TV.VideoClip({
-        name: `${baseName} (Bagian ${partNum})`,
-        file: clipA.file,
-        blobUrl: clipA.blobUrl,
-        duration: clipA.duration,
-        width: clipA.width,
-        height: clipA.height,
-        fps: clipA.fps,
-        trimIn: cutEnd,
-        trimOut: origTrimOut,
-        annotations: annotationsForB
-      });
-
-      this.session.insertClip(curIndex + 1, clipB);
-      this.session.activeClipIndex = curIndex; // stay at Part 1 so user can preview from start
+      const success = clip.applyCut(cutStart, cutEnd);
+      if (!success) {
+        this.showToast('Gagal memotong bagian video.', 'error');
+        return;
+      }
 
       document.getElementById('rippleCutModal')?.classList.remove('active');
 
-      this.videoEngine.setPlaybackBounds(clipA.trimIn, clipA.trimOut);
-      this.videoEngine.currentTime = clipA.trimIn;
+      this.videoEngine.setActiveClip(clip);
+      this.videoEngine.setPlaybackBounds(clip.trimIn, clip.trimOut);
+      this.videoEngine.currentTime = Math.min(cutStart, clip.duration);
 
       this.timeline.render({
         projectSession: this.session,
-        currentTime: clipA.trimIn,
+        currentTime: this.videoEngine.currentTime,
         selectedAnnotationId: null
       });
       this._updateInspector();
+      this._updatePlaybackUI();
       this._saveDraftToStorage();
 
-      this.showToast(`Bagian ${TV.VideoEngine.formatDuration(cutStart)} s/d ${TV.VideoEngine.formatDuration(cutEnd)} berhasil dibuang! Klip otomatis tersambung.`, 'success');
+      this.showToast(`Bagian video berhasil dipotong dan langsung digabung menjadi satu!`, 'success');
     }
 
     async _executeExport() {

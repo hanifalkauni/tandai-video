@@ -176,13 +176,24 @@
     const frameDuration = 1 / targetFps;
 
     // Calculate total frames and segments info
-    const segInfo = clipsToRender.map((c) => {
-      const s = typeof c.trimIn === 'number' ? c.trimIn : 0;
-      const e = typeof c.trimOut === 'number' && c.trimOut > 0 ? c.trimOut : (c.duration || 0);
-      const dur = Math.max(0.1, e - s);
-      const frames = Math.max(1, Math.ceil(dur * targetFps));
-      return { clip: c, start: s, end: e, duration: dur, frames };
-    });
+    const segInfo = [];
+    for (const c of clipsToRender) {
+      if (Array.isArray(c.segments) && c.segments.length > 0) {
+        for (const seg of c.segments) {
+          const s = seg.start;
+          const e = seg.end;
+          const dur = Math.max(0.04, e - s);
+          const frames = Math.max(1, Math.ceil(dur * targetFps));
+          segInfo.push({ clip: c, start: s, end: e, duration: dur, frames });
+        }
+      } else {
+        const s = typeof c.trimIn === 'number' ? c.trimIn : 0;
+        const e = typeof c.trimOut === 'number' && c.trimOut > 0 ? c.trimOut : (c.duration || 0);
+        const dur = Math.max(0.1, e - s);
+        const frames = Math.max(1, Math.ceil(dur * targetFps));
+        segInfo.push({ clip: c, start: s, end: e, duration: dur, frames });
+      }
+    }
 
     const totalFrames = segInfo.reduce((acc, curr) => acc + curr.frames, 0);
 
@@ -282,13 +293,18 @@
           }
 
           for (let i = 0; i < seg.frames; i++) {
-            const currentTime = seg.start + i * frameDuration;
+            const currentTime = Math.min(seg.end, seg.start + i * frameDuration);
             await seekVideo(currentTime);
+
+            // Compute corresponding timeline time for active annotations
+            const timelineTime = seg.clip.sourceToTimelineTime
+              ? seg.clip.sourceToTimelineTime(currentTime)
+              : currentTime;
 
             // Draw full composite frame: base video + annotations + watermark
             renderer.renderFrame({
               clip: seg.clip,
-              currentTime,
+              currentTime: timelineTime,
               selectedAnnotationId: null,
               watermarkConfig: projectSession?.watermark,
               drawBaseVideo: true

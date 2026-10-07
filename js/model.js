@@ -408,12 +408,24 @@
       this.name = config.name || 'Screen_Recording.mp4';
       this.blobUrl = config.blobUrl || null;
       this.file = config.file || null;
-      this.duration = config.duration || 0;
+      this.rawDuration = typeof config.rawDuration === 'number' ? config.rawDuration : (config.duration || 0);
       this.width = config.width || 1920;
       this.height = config.height || 1080;
       this.fps = config.fps || 30;
+
+      // Segments (EDL): array of { start: number, end: number } in source media seconds
+      if (Array.isArray(config.segments) && config.segments.length > 0) {
+        this.segments = config.segments.map(s => ({
+          start: Math.max(0, Number(s.start) || 0),
+          end: Math.max(0, Number(s.end) || 0)
+        }));
+      } else {
+        this.segments = [{ start: 0, end: this.rawDuration }];
+      }
+
+      this.duration = this.getDuration();
       this.trimIn = typeof config.trimIn === 'number' ? config.trimIn : 0;
-      this.trimOut = typeof config.trimOut === 'number' ? config.trimOut : config.duration || 0;
+      this.trimOut = typeof config.trimOut === 'number' && config.trimOut > 0 ? config.trimOut : this.duration;
       this.annotations = (config.annotations || []).map(a => 
         a instanceof BaseAnnotation ? a : TV.AnnotationFactory.create(a)
       );
@@ -421,8 +433,137 @@
       this.saveHistorySnapshot();
     }
 
+    getDuration() {
+      if (!this.segments || this.segments.length === 0) return this.rawDuration || 0;
+      return this.segments.reduce((acc, seg) => acc + Math.max(0, seg.end - seg.start), 0);
+    }
+
+    timelineToSourceTime(timelineT) {
+      if (!this.segments || this.segments.length === 0) return timelineT;
+      let accum = 0;
+      for (let i = 0; i < this.segments.length; i++) {
+        const seg = this.segments[i];
+        const segDur = Math.max(0, seg.end - seg.start);
+        if (timelineT <= accum + segDur || i === this.segments.length - 1) {
+          const offset = Math.max(0, timelineT - accum);
+          return Math.min(seg.end, seg.start + offset);
+        }
+        accum += segDur;
+      }
+      return this.segments[this.segments.length - 1]?.end || 0;
+    }
+
+    sourceToTimelineTime(sourceT) {
+      if (!this.segments || this.segments.length === 0) return sourceT;
+      let accum = 0;
+      for (let i = 0; i < this.segments.length; i++) {
+        const seg = this.segments[i];
+        const segDur = Math.max(0, seg.end - seg.start);
+        if (sourceT < seg.start) {
+          return accum;
+        }
+        if (sourceT <= seg.end) {
+          return accum + (sourceT - seg.start);
+        }
+        accum += segDur;
+      }
+      return accum;
+    }
+
+    getNextPlaybackJump(sourceT) {
+      if (!this.segments || this.segments.length <= 1) return null;
+      for (let i = 0; i < this.segments.length - 1; i++) {
+        const seg = this.segments[i];
+        const nextSeg = this.segments[i + 1];
+        if (sourceT >= seg.end - 0.04 && sourceT < nextSeg.start) {
+          return nextSeg.start;
+        }
+      }
+      return null;
+    }
+
+    applyCut(cutStart, cutEnd) {
+      if (cutEnd <= cutStart) return false;
+      const newSegments = [];
+      let tIn = 0;
+
+      for (const seg of this.segments) {
+        const segDur = Math.max(0, seg.end - seg.start);
+        const tOut = tIn + segDur;
+
+        // Part of segment before cutStart
+        if (tIn < cutStart) {
+          const keepDur = Math.min(tOut, cutStart) - tIn;
+          if (keepDur > 0.001) {
+            newSegments.push({
+              start: seg.start,
+              end: seg.start + keepDur
+            });
+          }
+        }
+
+        // Part of segment after cutEnd
+        if (tOut > cutEnd) {
+          const skipDur = Math.max(tIn, cutEnd) - tIn;
+          const keepDur = tOut - Math.max(tIn, cutEnd);
+          if (keepDur > 0.001) {
+            newSegments.push({
+              start: seg.start + skipDur,
+              end: seg.end
+            });
+          }
+        }
+
+        tIn = tOut;
+      }
+
+      if (newSegments.length === 0) {
+        return false;
+      }
+
+      this.segments = newSegments;
+      const cutDuration = cutEnd - cutStart;
+
+      // Adjust annotations
+      const newAnnotations = [];
+      for (const ann of this.annotations) {
+        if (ann.tEnd <= cutStart) {
+          newAnnotations.push(ann);
+        } else if (ann.tStart >= cutEnd) {
+          ann.tStart = Math.max(0, ann.tStart - cutDuration);
+          ann.tEnd = Math.max(ann.tStart + 0.1, ann.tEnd - cutDuration);
+          newAnnotations.push(ann);
+        } else {
+          if (ann.tStart < cutStart && cutStart - ann.tStart >= 0.1) {
+            const cloned = ann.clone();
+            cloned.tEnd = cutStart;
+            newAnnotations.push(cloned);
+          }
+          if (ann.tEnd > cutEnd && ann.tEnd - cutEnd >= 0.1) {
+            const cloned = ann.clone();
+            cloned.tStart = cutStart;
+            cloned.tEnd = cutStart + (ann.tEnd - cutEnd);
+            newAnnotations.push(cloned);
+          }
+        }
+      }
+
+      this.annotations = newAnnotations;
+      this.duration = this.getDuration();
+      this.trimIn = 0;
+      this.trimOut = this.duration;
+      this.saveHistorySnapshot();
+      return true;
+    }
+
     saveHistorySnapshot() {
-      this.history.pushState(this.annotations.map(a => a.toJSON()));
+      this.history.pushState({
+        annotations: this.annotations.map(a => a.toJSON()),
+        segments: this.segments ? this.segments.map(s => ({ start: s.start, end: s.end })) : [],
+        duration: this.duration,
+        trimIn: this.trimIn,
+        trimOut: this.trimOut
+      });
     }
 
     addAnnotation(ann) {
@@ -445,7 +586,17 @@
     undo() {
       const state = this.history.undo();
       if (state) {
-        this.annotations = state.map(a => TV.AnnotationFactory.create(a));
+        if (Array.isArray(state)) {
+          this.annotations = state.map(a => TV.AnnotationFactory.create(a));
+        } else {
+          this.annotations = (state.annotations || []).map(a => TV.AnnotationFactory.create(a));
+          if (state.segments) {
+            this.segments = state.segments.map(s => ({ start: s.start, end: s.end }));
+            this.duration = state.duration || this.getDuration();
+            this.trimIn = state.trimIn || 0;
+            this.trimOut = state.trimOut || this.duration;
+          }
+        }
         return true;
       }
       return false;
@@ -454,7 +605,17 @@
     redo() {
       const state = this.history.redo();
       if (state) {
-        this.annotations = state.map(a => TV.AnnotationFactory.create(a));
+        if (Array.isArray(state)) {
+          this.annotations = state.map(a => TV.AnnotationFactory.create(a));
+        } else {
+          this.annotations = (state.annotations || []).map(a => TV.AnnotationFactory.create(a));
+          if (state.segments) {
+            this.segments = state.segments.map(s => ({ start: s.start, end: s.end }));
+            this.duration = state.duration || this.getDuration();
+            this.trimIn = state.trimIn || 0;
+            this.trimOut = state.trimOut || this.duration;
+          }
+        }
         return true;
       }
       return false;
@@ -472,7 +633,9 @@
       return {
         id: this.id,
         name: this.name,
+        rawDuration: this.rawDuration,
         duration: this.duration,
+        segments: this.segments ? this.segments.map(s => ({ start: s.start, end: s.end })) : [],
         width: this.width,
         height: this.height,
         fps: this.fps,

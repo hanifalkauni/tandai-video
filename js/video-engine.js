@@ -18,6 +18,7 @@
 
       this.fps = 30;
       this.isPlaying = false;
+      this.activeClip = null;
       this.playbackBounds = { trimIn: 0, trimOut: null };
       this.listeners = {
         timeupdate: [],
@@ -32,6 +33,13 @@
       this._bindInternalEvents();
     }
 
+    setActiveClip(clip) {
+      this.activeClip = clip;
+      if (clip) {
+        this.setPlaybackBounds(clip.trimIn || 0, clip.trimOut || clip.duration);
+      }
+    }
+
     setPlaybackBounds(trimIn = 0, trimOut = null) {
       this.playbackBounds = {
         trimIn: typeof trimIn === 'number' ? trimIn : 0,
@@ -44,7 +52,7 @@
       const trimIn = this.playbackBounds.trimIn || 0;
       const trimOut = this.playbackBounds.trimOut;
 
-      if (typeof trimOut === 'number' && this.currentTime >= trimOut) {
+      if (typeof trimOut === 'number' && this.currentTime >= trimOut - 0.03) {
         this.pause();
         this.currentTime = trimIn;
         this._emit('boundaryReached', { trimIn, trimOut });
@@ -87,8 +95,17 @@
       });
 
       this.video.addEventListener('timeupdate', () => {
-        if (this.isPlaying && this._checkPlaybackBoundary()) {
-          return;
+        if (this.isPlaying) {
+          if (this.activeClip && typeof this.activeClip.getNextPlaybackJump === 'function') {
+            const jumpTo = this.activeClip.getNextPlaybackJump(this.video.currentTime);
+            if (typeof jumpTo === 'number') {
+              this.video.currentTime = jumpTo;
+              return;
+            }
+          }
+          if (this._checkPlaybackBoundary()) {
+            return;
+          }
         }
         this._emit('timeupdate', { currentTime: this.currentTime, duration: this.duration });
       });
@@ -103,6 +120,15 @@
       this._stopSyncLoop();
       const onFrame = (now, metadata) => {
         if (!this.isPlaying) return;
+
+        // Jump over cut gaps seamlessly
+        if (this.activeClip && typeof this.activeClip.getNextPlaybackJump === 'function') {
+          const jumpTo = this.activeClip.getNextPlaybackJump(this.video.currentTime);
+          if (typeof jumpTo === 'number') {
+            this.video.currentTime = jumpTo;
+            return;
+          }
+        }
 
         if (this._checkPlaybackBoundary()) {
           return;
@@ -142,17 +168,27 @@
        Public Playback Controls
        -------------------------------------------------------------------------- */
     get currentTime() {
+      if (this.activeClip && typeof this.activeClip.sourceToTimelineTime === 'function') {
+        return this.activeClip.sourceToTimelineTime(this.video.currentTime || 0);
+      }
       return this.video.currentTime || 0;
     }
 
     set currentTime(t) {
       if (typeof t !== 'number' || isNaN(t)) return;
       const clamped = Math.max(0, Math.min(t, this.duration));
-      this.video.currentTime = clamped;
+      let sourceT = clamped;
+      if (this.activeClip && typeof this.activeClip.timelineToSourceTime === 'function') {
+        sourceT = this.activeClip.timelineToSourceTime(clamped);
+      }
+      this.video.currentTime = sourceT;
       this._emit('timeupdate', { currentTime: clamped, duration: this.duration });
     }
 
     get duration() {
+      if (this.activeClip && typeof this.activeClip.duration === 'number' && this.activeClip.duration > 0) {
+        return this.activeClip.duration;
+      }
       return isFinite(this.video.duration) ? this.video.duration : 0;
     }
 
@@ -170,6 +206,12 @@
         const endT = typeof this.playbackBounds.trimOut === 'number' ? this.playbackBounds.trimOut : this.duration;
         if (this.currentTime < startT - 0.05 || this.currentTime >= endT - 0.05) {
           this.currentTime = startT;
+        }
+      }
+      if (this.activeClip && typeof this.activeClip.getNextPlaybackJump === 'function') {
+        const jumpTo = this.activeClip.getNextPlaybackJump(this.video.currentTime);
+        if (typeof jumpTo === 'number') {
+          this.video.currentTime = jumpTo;
         }
       }
       try {
