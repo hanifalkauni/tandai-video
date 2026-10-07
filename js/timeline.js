@@ -108,51 +108,57 @@
         }
       }, { passive: false });
 
-      // 4. Manual START & END Time Input Handlers
-      if (this.trimStartInput) {
-        const applyStart = () => {
+      // 4. Manual START & END Time Input Handlers (synced both ways with the slider)
+      const bindTrimInput = (input, type) => {
+        if (!input) return;
+        const commit = () => {
           const clip = this._currentClip;
           if (!clip) return;
-          const parsed = TV.VideoEngine.parseTimeString(this.trimStartInput.value);
+          const curIn = clip.trimIn || 0;
+          const curOut = clip.trimOut || clip.duration;
+          const parsed = TV.VideoEngine.parseTimeString(input.value.replace(',', '.'));
           if (parsed === null || parsed < 0) {
-            this.trimStartInput.value = TV.VideoEngine.formatDuration(clip.trimIn);
+            this._syncTrimInputs(clip, true);
             return;
           }
-          const clamped = Math.max(0, Math.min(parsed, (clip.trimOut || clip.duration) - 0.2));
-          clip.trimIn = clamped;
-          this._renderTrimOverlay(clip);
+          if (type === 'in') {
+            clip.trimIn = Math.max(0, Math.min(parsed, curOut - 0.2));
+          } else {
+            clip.trimOut = Math.min(clip.duration, Math.max(parsed, curIn + 0.2));
+          }
+          this._renderTrimOverlay(clip, true);
           this._emit('trimChange', { trimIn: clip.trimIn, trimOut: clip.trimOut });
         };
-        this.trimStartInput.addEventListener('change', applyStart);
-        this.trimStartInput.addEventListener('keydown', (e) => {
+        input.addEventListener('keydown', (e) => {
+          e.stopPropagation();
           if (e.key === 'Enter') {
             e.preventDefault();
-            this.trimStartInput.blur();
+            commit();
+            input.blur();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            if (this._currentClip) this._syncTrimInputs(this._currentClip, true);
+            input.blur();
           }
         });
-      }
+        input.addEventListener('focus', () => input.select());
+        input.addEventListener('blur', commit);
+      };
+      bindTrimInput(this.trimStartInput, 'in');
+      bindTrimInput(this.trimEndInput, 'out');
+    }
 
-      if (this.trimEndInput) {
-        const applyEnd = () => {
-          const clip = this._currentClip;
-          if (!clip) return;
-          const parsed = TV.VideoEngine.parseTimeString(this.trimEndInput.value);
-          if (parsed === null || parsed <= 0) {
-            this.trimEndInput.value = TV.VideoEngine.formatDuration(clip.trimOut || clip.duration);
-            return;
-          }
-          const clamped = Math.min(clip.duration, Math.max(clip.trimIn + 0.2, parsed));
-          clip.trimOut = clamped;
-          this._renderTrimOverlay(clip);
-          this._emit('trimChange', { trimIn: clip.trimIn, trimOut: clip.trimOut });
-        };
-        this.trimEndInput.addEventListener('change', applyEnd);
-        this.trimEndInput.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            this.trimEndInput.blur();
-          }
-        });
+    _syncTrimInputs(clip, force = false) {
+      if (!clip) return;
+      const out = clip.trimOut || clip.duration;
+      if (this.trimStartInput && (force || document.activeElement !== this.trimStartInput)) {
+        this.trimStartInput.value = TV.VideoEngine.formatDuration(clip.trimIn || 0);
+      }
+      if (this.trimEndInput && (force || document.activeElement !== this.trimEndInput)) {
+        this.trimEndInput.value = TV.VideoEngine.formatDuration(out);
+      }
+      if (this.trimDurationBadge) {
+        this.trimDurationBadge.textContent = `Durasi: ${TV.VideoEngine.formatDuration(Math.max(0, out - (clip.trimIn || 0)))}`;
       }
     }
 
@@ -306,7 +312,7 @@
       }
     }
 
-    _renderTrimOverlay(clip) {
+    _renderTrimOverlay(clip, force = false) {
       const inPx = this._timeToPx(clip.trimIn);
       const outPx = this._timeToPx(clip.trimOut || clip.duration);
 
@@ -315,31 +321,16 @@
 
       this.trimHandleIn.style.display = 'flex';
       this.trimHandleIn.style.left = `${inPx}px`;
-      if (this.trimInTooltip) {
-        this.trimInTooltip.textContent = TV.VideoEngine.formatDuration(clip.trimIn);
-      }
 
       this.trimHandleOut.style.display = 'flex';
       this.trimHandleOut.style.left = `${outPx}px`;
-      if (this.trimOutTooltip) {
-        this.trimOutTooltip.textContent = TV.VideoEngine.formatDuration(clip.trimOut || clip.duration);
-      }
 
       this.trimRightDimmer.style.display = 'block';
       this.trimRightDimmer.style.left = `${outPx}px`;
       this.trimRightDimmer.style.right = '0';
 
-      // Sync manual inputs if not currently focused by user
-      if (this.trimStartInput && document.activeElement !== this.trimStartInput) {
-        this.trimStartInput.value = TV.VideoEngine.formatDuration(clip.trimIn);
-      }
-      if (this.trimEndInput && document.activeElement !== this.trimEndInput) {
-        this.trimEndInput.value = TV.VideoEngine.formatDuration(clip.trimOut || clip.duration);
-      }
-      if (this.trimDurationBadge) {
-        const activeDur = Math.max(0, (clip.trimOut || clip.duration) - clip.trimIn);
-        this.trimDurationBadge.textContent = `Durasi: ${TV.VideoEngine.formatDuration(activeDur)}`;
-      }
+      // Realtime sync of header START / END inputs with the slider
+      this._syncTrimInputs(clip, force);
     }
 
     _renderTracks(clip, selectedAnnotationId) {

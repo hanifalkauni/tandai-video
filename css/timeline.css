@@ -72,6 +72,10 @@
 }
 
 .trim-time-field {
+  user-select: text;
+  -webkit-user-select: text;
+  pointer-events: auto;
+  cursor: text;
   width: 68px;
   height: 20px;
   font-family: var(--font-mono, monospace);
