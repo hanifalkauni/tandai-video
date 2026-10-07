@@ -20,14 +20,23 @@ Semua proses decoding, rendering, sensor, dan ekspor dilakukan **100% di peramba
   - Drag-and-drop file video (`.mp4`, `.webm`, `.mov`, `.mkv`).
   - **Perekam Layar Langsung**: Rekam tab / jendela / seluruh layar langsung dari aplikasi via `getDisplayMedia()`.
   - **Multi-Clip Session Playlist**: Kelola beberapa rekaman video sekaligus dalam satu sesi pengujian QA.
-- ⏱️ **Player Presisi Frame (*Frame-Accurate*) & Trim**:
+- ✂️ **Pecah (Split) & Potong Video Otomatis Gabung (Cut)**:
+  - **Pecah Klip (Split)**: Bagi klip video atau anotasi aktif menjadi dua di posisi playhead saat ini (`C` / `K`).
+  - **Potong Video (Cut)**: Buang rentang bagian tengah video yang tidak diinginkan (misal menit `02:00` s/d `03:00`) dan **langsung otomatis menyambungkan** bagian sebelum dan sesudahnya menjadi 1 video utuh di timeline (`X`). Pemutar melompati potongan secara instan (*seamless jump cut*) dan video hasil ekspor langsung berupa 1 berkas terpadu tanpa bagian yang dipotong.
+- 🖐️ **Alat Tangan (Hand Pan) & Zoom Berpusat Kursor**:
+  - Geser viewport secara leluasa saat kondisi zoom (25% - 400%) dengan tombol **Alat Tangan (`H`)** atau tahan **`Spasi + Drag`**.
+  - Navigasi zoom in/out dengan `Ctrl + Scroll` yang berpusat langsung pada koordinat kursor mouse (*cursor-anchored zoom*).
+- ⏱️ **Player Presisi Frame & Batas START/END Realtime**:
   - Maju / mundur per 1 frame (`.` / `,`) untuk menemukan momen bug yang presisi.
   - Kontrol kecepatan (*Playback Speed* `0.25x` - `2.0x`) dengan *pitch preservation*.
-  - Pemotongan klip dengan In-Point (`I`) dan Out-Point (`O`) visual.
+  - **Input Waktu START & END Realtime**: Kolom waktu di header timeline tersinkronisasi dua arah secara realtime dengan pegangan slider pemangkasan visual. Dapat diketik manual (format `MM:SS.ms` atau detik angka).
+- 📜 **Navigasi Roda Mouse di Timeline**:
+  - Gulir roda mouse (*mouse wheel*) di area timeline untuk menggeser timeline secara horizontal (*horizontal slide*).
+  - Tahan `Ctrl + Scroll` di timeline untuk memperbesar/memperkecil skala zoom timeline (0.5x, 1.0x, 2.0x).
 - 📐 **Peralatan Anotasi & Penanda Temporal**:
   - **Kotak (`R`)** & **Elips (`O`)**: Pilihan outline, semi-transparan, atau solid.
   - **Panah (`A`)**: Kepala panah otomatis dan snapping sudut 45° via `Shift`.
-  - **Highlighter (`H`)**: Stabilo transparan untuk menyorot teks log.
+  - **Highlighter (`D`)**: Stabilo transparan untuk menyorot teks log atau pesan error.
   - **Teks Callout (`T`)**: Label catatan penjelasan dengan background pill.
   - **Nomor Langkah (`N`)**: Badge nomor urut otomatis (1, 2, 3...) untuk alur reproduksi.
   - **Spotlight Dimmer (`S`)**: Menggelapkan seluruh layar kecuali area fokus lingkaran/kotak.
@@ -41,7 +50,7 @@ Semua proses decoding, rendering, sensor, dan ekspor dilakukan **100% di peramba
 - 🏷️ **Stempel Bukti Formal (Evidence Watermark)**:
   - Cap otomatis di sudut video: No. Tiket, Nama Penguji, Waktu Presisi, dan *Dynamic Burn-in Timecode*.
 - 📦 **Ekspor Lengkap & Integritas Bukti**:
-  - **Ekspor Video (MP4 / WebM)**: Video beranotasi hasil *burn-in* dengan rentang trim yang dipilih.
+  - **Ekspor Video (MP4 / WebM)**: Video beranotasi hasil *burn-in* dengan rentang trim yang dipilih (mendukung penggabungan multi-segmen otomatis).
   - **Frame Snapshot PNG / Clipboard (`Ctrl+C`)**: Tangkap frame saat ini beresolusi penuh untuk langsung di-paste ke Slack, Jira, atau GitHub.
   - **Paket ZIP + Manifest SHA-256**: Mengunduh seluruh paket bukti dengan catatan hash kriptografi SHA-256 untuk membuktikan integritas keaslian berkas.
   - **Proyek JSON (`.tandaivideo`)**: Simpan dan buka sesi kerja untuk kolaborasi tim.
@@ -55,26 +64,31 @@ Semua proses decoding, rendering, sensor, dan ekspor dilakukan **100% di peramba
 | `Space` | Putar / Jeda video (atau tahan + drag untuk pan saat zoom) |
 | `.` atau `>` | Maju 1 frame |
 | `,` atau `<` | Mundur 1 frame |
-| `ArrowLeft` / `ArrowRight` | Lompat mundur / maju 1 detik (`Shift` untuk 5 detik) |
-| `I` | Set Trim In-Point (titik awal klip) |
-| `O` | Set Trim Out-Point (titik akhir klip) |
+| `←` / `→` | Lompat mundur / maju 1 detik (`Shift` untuk 5 detik) |
+| `I` | Set Batas Mulai Pemangkasan (START) |
+| `O` | Set Batas Akhir Pemangkasan (END) |
+| `C` / `K` | Pecah Klip / Anotasi di Playhead (Split) |
+| `X` | Potong Rentang Video & Sambung Otomatis (Cut) |
 | `V` | Mode Seleksi / Pilih Objek |
+| `H` | Alat Tangan (Hand Pan Kanvas) |
 | `R` | Alat Kotak (Rectangle) |
 | `O` | Alat Elips (Circle/Ellipse) |
 | `A` | Alat Panah (Arrow) |
-| `H` | Alat Highlighter |
-| `T` | Alat Teks |
+| `D` | Alat Highlighter (Stabilo) |
+| `T` | Alat Teks Catatan |
 | `N` | Alat Nomor Langkah (1, 2, 3...) |
 | `B` | Alat Sensor (Blur / Pixelate / Hitam) |
 | `S` | Alat Spotlight |
 | `M` | Alat Kaca Pembesar Loupe |
+| `Scroll di Timeline` | Geser Timeline Horizontal |
+| `Ctrl + Scroll di Timeline` | Ubah Skala Zoom Timeline |
+| `Ctrl + Scroll di Kanvas` | Zoom In / Out Viewport Video (25% - 400%) |
 | `Ctrl + C` | Salin frame aktif beranotasi ke Clipboard |
 | `Ctrl + S` | Simpan frame aktif sebagai gambar PNG |
 | `Ctrl + E` | Buka dialog Ekspor Video / Paket Bukti |
-| `Ctrl + Z` / `Ctrl + Y` | Undo / Redo |
+| `Ctrl + Z` / `Ctrl + Y` | Undo / Redo (Mendukung pembatalan potongan video) |
 | `Delete` / `Backspace` | Hapus objek anotasi yang dipilih |
 | `Shift` (tahan saat gambar) | Kunci aspek rasio persegi/lingkaran atau snap sudut panah 45° |
-| `Ctrl + Scroll` | Zoom in / Zoom out viewport video (25% - 400%) |
 
 ---
 
