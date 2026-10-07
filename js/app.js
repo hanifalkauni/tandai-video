@@ -164,7 +164,7 @@
       });
 
       this.timeline.on('trimChange', ({ trimIn, trimOut }) => {
-        this.showToast(`Trim: ${TV.VideoEngine.formatDuration(trimIn)} - ${TV.VideoEngine.formatDuration(trimOut)}`, 'info');
+        this.showToast(`Batas Video: ${TV.VideoEngine.formatDuration(trimIn)} (START) - ${TV.VideoEngine.formatDuration(trimOut)} (END)`, 'info');
         this._saveDraftToStorage();
       });
 
@@ -1101,7 +1101,7 @@
               currentTime: this.videoEngine.currentTime,
               selectedAnnotationId: this.selectedAnnotationId
             });
-            this.showToast(`Set Trim In: ${TV.VideoEngine.formatDuration(clip.trimIn)}`, 'info');
+            this.showToast(`Set Batas Mulai (START): ${TV.VideoEngine.formatDuration(clip.trimIn)}`, 'info');
           }
         } else if (key === 'o') {
           const clip = this.session.getActiveClip();
@@ -1112,7 +1112,7 @@
               currentTime: this.videoEngine.currentTime,
               selectedAnnotationId: this.selectedAnnotationId
             });
-            this.showToast(`Set Trim Out: ${TV.VideoEngine.formatDuration(clip.trimOut)}`, 'info');
+            this.showToast(`Set Batas Akhir (END): ${TV.VideoEngine.formatDuration(clip.trimOut)}`, 'info');
           }
         } else if (isCtrl && key === 'c') {
           e.preventDefault();
