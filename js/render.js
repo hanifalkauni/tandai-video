@@ -45,12 +45,18 @@
     /* --------------------------------------------------------------------------
        Master Render Frame
        -------------------------------------------------------------------------- */
-    renderFrame({ clip, currentTime, selectedAnnotationId, hoverAnnotationId, activeHandle, isDrawing, draftAnnotation, watermarkConfig }) {
+    renderFrame({ clip, currentTime, selectedAnnotationId, hoverAnnotationId, activeHandle, isDrawing, draftAnnotation, watermarkConfig, drawBaseVideo = false }) {
       const ctx = this.ctx;
       const w = this.width;
       const h = this.height;
 
       ctx.clearRect(0, 0, w, h);
+
+      // Draw base video frame if requested (e.g. during video export or snapshot)
+      if (drawBaseVideo && this.video) {
+        ctx.drawImage(this.video, 0, 0, w, h);
+      }
+
       if (!clip) return;
 
       const annotations = clip.annotations || [];
@@ -100,8 +106,8 @@
       }
 
       // 7. Seventh Pass: Evidence Watermark & Burn-in Timecode
-      if (watermarkConfig && watermarkConfig.enabled) {
-        this._renderWatermark(ctx, watermarkConfig, currentTime, clip.fps);
+      if (watermarkConfig && (watermarkConfig.ticket || watermarkConfig.author || watermarkConfig.showTimecode !== false)) {
+        this._renderWatermark(ctx, watermarkConfig, currentTime, clip.fps || 30);
       }
     }
 

@@ -135,19 +135,16 @@
     const canvas = document.createElement('canvas');
     canvas.width = clip.width || videoElement.videoWidth || 1920;
     canvas.height = clip.height || videoElement.videoHeight || 1080;
-    const ctx = canvas.getContext('2d');
 
-    // 1. Draw base video frame
-    ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-
-    // 2. Draw active annotations & watermark via renderer
+    // Draw active annotations & watermark via renderer with base video drawn
     const renderer = new TV.CanvasRenderer(canvas, videoElement);
     renderer.setDimensions(canvas.width, canvas.height);
     renderer.renderFrame({
       clip,
       currentTime,
       selectedAnnotationId: null,
-      watermarkConfig
+      watermarkConfig,
+      drawBaseVideo: true
     });
 
     return new Promise((resolve) => {
@@ -182,7 +179,6 @@
     const renderCanvas = document.createElement('canvas');
     renderCanvas.width = width;
     renderCanvas.height = height;
-    const renderCtx = renderCanvas.getContext('2d', { willReadFrequently: true });
     const renderer = new TV.CanvasRenderer(renderCanvas, videoElement);
     renderer.setDimensions(width, height);
 
@@ -248,15 +244,13 @@
           const currentTime = tStart + i * frameDuration;
           await seekVideo(currentTime);
 
-          // Draw base video frame
-          renderCtx.drawImage(videoElement, 0, 0, width, height);
-
-          // Draw overlay annotations & watermark
+          // Draw full composite frame: base video + annotations + watermark
           renderer.renderFrame({
             clip,
             currentTime,
             selectedAnnotationId: null,
-            watermarkConfig: projectSession.watermark
+            watermarkConfig: projectSession.watermark,
+            drawBaseVideo: true
           });
 
           const percent = Math.min(99, Math.round(((i + 1) / totalFrames) * 100));
