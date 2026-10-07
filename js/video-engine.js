@@ -30,11 +30,13 @@
 
       this._rvfcId = null;
       this._rafId = null;
+      this._pendingJumpTarget = null;
       this._bindInternalEvents();
     }
 
     setActiveClip(clip) {
       this.activeClip = clip;
+      this._pendingJumpTarget = null;
       if (clip) {
         this.setPlaybackBounds(clip.trimIn || 0, clip.trimOut || clip.duration);
       }
@@ -80,12 +82,20 @@
 
       this.video.addEventListener('pause', () => {
         this.isPlaying = false;
+        this._pendingJumpTarget = null;
         this._stopSyncLoop();
         this._emit('playstate', { isPlaying: false });
       });
 
+      this.video.addEventListener('seeked', () => {
+        if (this._pendingJumpTarget !== null && this.video.currentTime >= this._pendingJumpTarget - 0.08) {
+          this._pendingJumpTarget = null;
+        }
+      });
+
       this.video.addEventListener('ended', () => {
         this.isPlaying = false;
+        this._pendingJumpTarget = null;
         this._stopSyncLoop();
         this._emit('ended');
       });
@@ -99,8 +109,16 @@
           if (this.activeClip && typeof this.activeClip.getNextPlaybackJump === 'function') {
             const jumpTo = this.activeClip.getNextPlaybackJump(this.video.currentTime);
             if (typeof jumpTo === 'number') {
-              this.video.currentTime = jumpTo;
-              return;
+              if (!this.video.seeking && this._pendingJumpTarget !== jumpTo) {
+                this._pendingJumpTarget = jumpTo;
+                this.video.currentTime = jumpTo;
+                return;
+              }
+              if (this.video.currentTime >= jumpTo - 0.05) {
+                this._pendingJumpTarget = null;
+              }
+            } else {
+              this._pendingJumpTarget = null;
             }
           }
           if (this._checkPlaybackBoundary()) {
@@ -125,8 +143,16 @@
         if (this.activeClip && typeof this.activeClip.getNextPlaybackJump === 'function') {
           const jumpTo = this.activeClip.getNextPlaybackJump(this.video.currentTime);
           if (typeof jumpTo === 'number') {
-            this.video.currentTime = jumpTo;
-            return;
+            if (!this.video.seeking && this._pendingJumpTarget !== jumpTo) {
+              this._pendingJumpTarget = jumpTo;
+              this.video.currentTime = jumpTo;
+              return;
+            }
+            if (this.video.currentTime >= jumpTo - 0.05) {
+              this._pendingJumpTarget = null;
+            }
+          } else {
+            this._pendingJumpTarget = null;
           }
         }
 
@@ -181,6 +207,7 @@
       if (this.activeClip && typeof this.activeClip.timelineToSourceTime === 'function') {
         sourceT = this.activeClip.timelineToSourceTime(clamped);
       }
+      this._pendingJumpTarget = null;
       this.video.currentTime = sourceT;
       this._emit('timeupdate', { currentTime: clamped, duration: this.duration });
     }
@@ -210,7 +237,8 @@
       }
       if (this.activeClip && typeof this.activeClip.getNextPlaybackJump === 'function') {
         const jumpTo = this.activeClip.getNextPlaybackJump(this.video.currentTime);
-        if (typeof jumpTo === 'number') {
+        if (typeof jumpTo === 'number' && !this.video.seeking) {
+          this._pendingJumpTarget = jumpTo;
           this.video.currentTime = jumpTo;
         }
       }

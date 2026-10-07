@@ -175,23 +175,54 @@
     const targetFps = options.fps || (refClip ? refClip.fps : 30) || 30;
     const frameDuration = 1 / targetFps;
 
-    // Calculate total frames and segments info
+    // Calculate total frames and segments info based on active trim [trimIn, trimOut]
     const segInfo = [];
     for (const c of clipsToRender) {
+      const clipTrimIn = typeof c.trimIn === 'number' ? Math.max(0, c.trimIn) : 0;
+      const clipTrimOut = (typeof c.trimOut === 'number' && c.trimOut > clipTrimIn)
+        ? Math.min(c.duration || Infinity, c.trimOut)
+        : (c.duration || c.rawDuration || 1);
+
       if (Array.isArray(c.segments) && c.segments.length > 0) {
+        let accum = 0;
         for (const seg of c.segments) {
-          const s = seg.start;
-          const e = seg.end;
-          const dur = Math.max(0.04, e - s);
-          const frames = Math.max(1, Math.ceil(dur * targetFps));
-          segInfo.push({ clip: c, start: s, end: e, duration: dur, frames });
+          const segDur = Math.max(0, seg.end - seg.start);
+          const tStart = accum;
+          const tEnd = accum + segDur;
+          accum += segDur;
+
+          // Intersect segment with [clipTrimIn, clipTrimOut]
+          const overlapStart = Math.max(tStart, clipTrimIn);
+          const overlapEnd = Math.min(tEnd, clipTrimOut);
+
+          if (overlapEnd > overlapStart + 0.01) {
+            const sourceStart = seg.start + (overlapStart - tStart);
+            const sourceEnd = seg.start + (overlapEnd - tStart);
+            const dur = overlapEnd - overlapStart;
+            const frames = Math.max(1, Math.round(dur * targetFps));
+            segInfo.push({
+              clip: c,
+              start: sourceStart,
+              end: sourceEnd,
+              duration: dur,
+              frames,
+              timelineOffset: overlapStart
+            });
+          }
         }
       } else {
-        const s = typeof c.trimIn === 'number' ? c.trimIn : 0;
-        const e = typeof c.trimOut === 'number' && c.trimOut > 0 ? c.trimOut : (c.duration || 0);
-        const dur = Math.max(0.1, e - s);
-        const frames = Math.max(1, Math.ceil(dur * targetFps));
-        segInfo.push({ clip: c, start: s, end: e, duration: dur, frames });
+        const s = clipTrimIn;
+        const e = clipTrimOut;
+        const dur = Math.max(0.04, e - s);
+        const frames = Math.max(1, Math.round(dur * targetFps));
+        segInfo.push({
+          clip: c,
+          start: s,
+          end: e,
+          duration: dur,
+          frames,
+          timelineOffset: s
+        });
       }
     }
 
@@ -213,25 +244,13 @@
     if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
     if (MediaRecorder.isTypeSupported('video/mp4')) mimeType = 'video/mp4';
 
+    // Capture clean canvas stream
     const stream = renderCanvas.captureStream(targetFps);
-
-    // Optional audio track handling
-    if (!projectSession.audio?.muteOnExport && videoElement.captureStream) {
-      try {
-        const vStream = videoElement.captureStream();
-        const audioTracks = vStream.getAudioTracks();
-        if (audioTracks.length > 0) {
-          stream.addTrack(audioTracks[0]);
-        }
-      } catch (err) {
-        console.warn('Could not capture audio track:', err);
-      }
-    }
 
     const recordedChunks = [];
     const recorder = new MediaRecorder(stream, {
       mimeType,
-      videoBitsPerSecond: options.bitrate || 5000000 // 5 Mbps
+      videoBitsPerSecond: options.bitrate || 6000000 // 6 Mbps
     });
 
     recorder.ondataavailable = (e) => {
@@ -247,7 +266,7 @@
 
       recorder.onerror = (err) => reject(err);
 
-      recorder.start();
+      recorder.start(100); // 100ms time slice for regular flushing
 
       // Deterministic frame stepping loop
       videoElement.pause();
@@ -256,10 +275,22 @@
 
       const seekVideo = (time) => {
         return new Promise((res) => {
-          const onSeeked = () => {
+          if (Math.abs(videoElement.currentTime - time) < 0.005) {
+            return res();
+          }
+
+          let done = false;
+          const finish = () => {
+            if (done) return;
+            done = true;
             videoElement.removeEventListener('seeked', onSeeked);
+            clearTimeout(timer);
             res();
           };
+
+          const onSeeked = () => finish();
+          const timer = setTimeout(finish, 200);
+
           videoElement.addEventListener('seeked', onSeeked);
           videoElement.currentTime = time;
         });
@@ -286,6 +317,8 @@
 
       try {
         let done = 0;
+        const track = stream.getVideoTracks()[0];
+
         for (let k = 0; k < segInfo.length; k++) {
           const seg = segInfo[k];
           if (seg.clip.blobUrl) {
@@ -293,13 +326,13 @@
           }
 
           for (let i = 0; i < seg.frames; i++) {
-            const currentTime = Math.min(seg.end, seg.start + i * frameDuration);
+            const currentTime = Math.min(seg.end, seg.start + (i / targetFps));
             await seekVideo(currentTime);
 
             // Compute corresponding timeline time for active annotations
             const timelineTime = seg.clip.sourceToTimelineTime
               ? seg.clip.sourceToTimelineTime(currentTime)
-              : currentTime;
+              : (seg.timelineOffset + (i / targetFps));
 
             // Draw full composite frame: base video + annotations + watermark
             renderer.renderFrame({
@@ -310,22 +343,32 @@
               drawBaseVideo: true
             });
 
+            if (track && typeof track.requestFrame === 'function') {
+              track.requestFrame();
+            }
+
             done++;
             const percent = Math.min(99, Math.round((done / totalFrames) * 100));
             const segLabel = segInfo.length > 1 ? ` [bagian ${k + 1}/${segInfo.length}]` : '';
             onProgress(percent, `Rendering frame ${done}/${totalFrames} (${percent}%)${segLabel}`);
 
-            // Yield to browser thread for smooth progress bar update
-            await new Promise((r) => setTimeout(r, 6));
+            // Yield to browser encoding thread
+            await new Promise((r) => setTimeout(r, Math.max(10, Math.floor(1000 / targetFps))));
           }
         }
 
-        // Restore initial playback position and source
+        // Allow final frames to be processed by encoder
+        await new Promise((r) => setTimeout(r, 150));
         await restore();
-        recorder.stop();
+
+        if (recorder.state === 'recording') {
+          recorder.stop();
+        }
       } catch (err) {
         await restore();
-        recorder.stop();
+        if (recorder.state === 'recording') {
+          recorder.stop();
+        }
         reject(err);
       }
     });

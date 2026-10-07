@@ -446,7 +446,7 @@
       for (let i = 0; i < this.segments.length; i++) {
         const seg = this.segments[i];
         const segDur = Math.max(0, seg.end - seg.start);
-        if (timelineT <= accum + segDur || i === this.segments.length - 1) {
+        if (timelineT < accum + segDur || i === this.segments.length - 1) {
           const offset = Math.max(0, timelineT - accum);
           return Math.min(seg.end, seg.start + offset);
         }
