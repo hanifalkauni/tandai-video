@@ -54,7 +54,7 @@
       const trimIn = this.playbackBounds.trimIn || 0;
       const trimOut = this.playbackBounds.trimOut;
 
-      if (typeof trimOut === 'number' && this.currentTime >= trimOut - 0.03) {
+      if (typeof trimOut === 'number' && trimOut > 0 && this.currentTime >= trimOut - 0.03) {
         this.pause();
         this.currentTime = trimIn;
         this._emit('boundaryReached', { trimIn, trimOut });
@@ -208,7 +208,9 @@
         sourceT = this.activeClip.timelineToSourceTime(clamped);
       }
       this._pendingJumpTarget = null;
-      this.video.currentTime = sourceT;
+      if (this.video.readyState >= 1) {
+        this.video.currentTime = sourceT;
+      }
       this._emit('timeupdate', { currentTime: clamped, duration: this.duration });
     }
 
@@ -246,6 +248,9 @@
         await this.video.play();
       } catch (err) {
         console.warn('Autoplay or play blocked:', err);
+        this.isPlaying = false;
+        this._stopSyncLoop();
+        this._emit('playstate', { isPlaying: false });
       }
     }
 
@@ -288,6 +293,12 @@
     }
 
     loadSource(src) {
+      this.pause();
+      this._stopSyncLoop();
+      this.isPlaying = false;
+      this._pendingJumpTarget = null;
+      this._emit('playstate', { isPlaying: false });
+
       return new Promise((resolve, reject) => {
         const cleanup = () => {
           this.video.removeEventListener('loadedmetadata', onLoaded);

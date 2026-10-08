@@ -125,8 +125,10 @@
           if (clip.trimIn >= clip.trimOut) clip.trimIn = 0;
 
           // Clear any premature history and establish proper baseline history
-          clip.history.clear();
-          clip.saveHistorySnapshot();
+          if (!clip.history.undoStack || clip.history.undoStack.length === 0) {
+            clip.history.clear();
+            clip.saveHistorySnapshot();
+          }
 
           this.videoEngine.setActiveClip(clip);
           this.renderer.setDimensions(meta.width, meta.height);
@@ -186,14 +188,16 @@
         this._saveDraftToStorage();
       });
 
-      this.videoEngine.on('boundaryReached', () => {
+      this.videoEngine.on('boundaryReached', async () => {
         // Continuous playback: if there is a next clip in session, transition seamlessly
         const nextIndex = this.session.activeClipIndex + 1;
         if (nextIndex < this.session.clips.length) {
-          this.switchClip(nextIndex);
-          setTimeout(() => {
-            this.videoEngine.play();
-          }, 60);
+          await this.switchClip(nextIndex);
+          try {
+            await this.videoEngine.play();
+          } catch (e) {
+            console.warn('Autoplay next clip blocked:', e);
+          }
         }
       });
 
@@ -1159,14 +1163,7 @@
       });
 
       this.session.insertClip(curIndex + 1, clipB);
-      this.session.activeClipIndex = curIndex + 1;
-
-      this.timeline.render({
-        projectSession: this.session,
-        currentTime: splitTime,
-        selectedAnnotationId: null
-      });
-      this._updateInspector();
+      this.switchClip(curIndex + 1);
       this._saveDraftToStorage();
 
       this.showToast(`Klip berhasil dipecah di ${TV.VideoEngine.formatDuration(splitTime)}! (Bagian 1 & Bagian ${partNum})`, 'success');
@@ -1471,6 +1468,7 @@
         if (e.target.files && e.target.files[0]) {
           this.loadVideoFile(e.target.files[0]);
         }
+        e.target.value = '';
       });
 
       // Drag and Drop
@@ -1513,6 +1511,7 @@
 
     async loadVideoFile(file) {
       try {
+        this.videoEngine.pause();
         // Relink mode: attach the chosen video to a clip restored from a project file
         const relinkClip = this.pendingRelinkClip;
         if (relinkClip) {
@@ -1522,6 +1521,7 @@
           relinkClip.blobUrl = URL.createObjectURL(file);
           this.session.activeClipIndex = Math.max(0, this.session.clips.indexOf(relinkClip));
           await this.videoEngine.loadSource(relinkClip.blobUrl);
+          this.videoEngine.setActiveClip(relinkClip);
           this.videoEngine.setPlaybackBounds(relinkClip.trimIn, relinkClip.trimOut);
           this.videoEngine.currentTime = relinkClip.trimIn || 0;
           this.showToast('Proyek dipulihkan: video, anotasi & batas START/END dimuat.', 'success');
@@ -1537,7 +1537,9 @@
 
         this.session.addClip(clip);
         await this.videoEngine.loadSource(clip.blobUrl);
+        this.videoEngine.setActiveClip(clip);
         this.videoEngine.setPlaybackBounds(clip.trimIn, clip.trimOut);
+        this.videoEngine.currentTime = clip.trimIn || 0;
         this.showToast('Video berhasil dimuat!', 'success');
       } catch (err) {
         this.showToast(`Gagal memuat video: ${err.message}`, 'error');
@@ -1603,48 +1605,63 @@
       }
     }
 
-    switchClip(index) {
+    async switchClip(index) {
+      if (index < 0 || index >= this.session.clips.length) return;
+      this.videoEngine.pause();
       this.session.activeClipIndex = index;
       const clip = this.session.getActiveClip();
-      if (clip && !clip.blobUrl) {
-        this._dom.video.pause();
+      if (!clip) return;
+
+      if (!clip.blobUrl) {
         this.timeline.render({ projectSession: this.session, currentTime: 0, selectedAnnotationId: null });
         this._requestRelink(clip);
         return;
       }
-      if (clip && clip.blobUrl) {
-        this.videoEngine.setActiveClip(clip);
-        this.pendingRelinkClip = null;
-        this._resetDropzoneText();
-        this._dom.emptyDropzone.hidden = true;
-        const startT = typeof clip.trimIn === 'number' ? clip.trimIn : 0;
-        if (this._dom.video.src === clip.blobUrl) {
-          this.videoEngine.currentTime = startT;
-        } else {
-          this.videoEngine.loadSource(clip.blobUrl);
-          this.videoEngine.currentTime = startT;
+
+      this.pendingRelinkClip = null;
+      this._resetDropzoneText();
+      this._dom.emptyDropzone.hidden = true;
+
+      if (this._dom.video.src !== clip.blobUrl) {
+        try {
+          await this.videoEngine.loadSource(clip.blobUrl);
+        } catch (err) {
+          console.error('Failed to load clip source:', err);
+          this.showToast('Gagal memuat file video klip', 'error');
+          return;
         }
-        this.timeline.render({
-          projectSession: this.session,
-          currentTime: startT,
-          selectedAnnotationId: null
-        });
       }
+
+      this.videoEngine.setActiveClip(clip);
+      this.videoEngine.setPlaybackBounds(clip.trimIn, clip.trimOut);
+      const startT = typeof clip.trimIn === 'number' ? clip.trimIn : 0;
+      this.videoEngine.currentTime = startT;
+
+      this.timeline.render({
+        projectSession: this.session,
+        currentTime: startT,
+        selectedAnnotationId: null
+      });
+      this._updatePlaybackUI();
+      this._updateInspector();
     }
 
-    removeClip(index) {
+    async removeClip(index) {
+      this.videoEngine.pause();
       this.session.removeClip(index);
       const clip = this.session.getActiveClip();
       if (clip && clip.blobUrl) {
-        this.videoEngine.loadSource(clip.blobUrl);
+        await this.switchClip(this.session.activeClipIndex);
       } else {
+        this.videoEngine.setPlaybackBounds(0, null);
         this._dom.emptyDropzone.hidden = false;
+        this.timeline.render({
+          projectSession: this.session,
+          currentTime: 0,
+          selectedAnnotationId: null
+        });
+        this._updatePlaybackUI();
       }
-      this.timeline.render({
-        projectSession: this.session,
-        currentTime: 0,
-        selectedAnnotationId: null
-      });
     }
 
     /* --------------------------------------------------------------------------
