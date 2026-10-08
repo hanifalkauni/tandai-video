@@ -167,66 +167,35 @@
   TV.exportVideo = async function (projectSession, clip, videoElement, options = {}, onProgress = () => {}) {
     const clipsToRender = (options.clips && options.clips.length)
       ? options.clips
-      : (projectSession && projectSession.clips && projectSession.clips.length > 0)
-        ? projectSession.clips
-        : [clip];
+      : (options.activeClipOnly)
+        ? [clip]
+        : (projectSession && projectSession.clips && projectSession.clips.length > 0)
+          ? projectSession.clips
+          : [clip];
 
     const refClip = clipsToRender[0] || clip;
     const targetFps = options.fps || (refClip ? refClip.fps : 30) || 30;
-    const frameDuration = 1 / targetFps;
 
-    // Calculate total frames and segments info based on active trim [trimIn, trimOut]
-    const segInfo = [];
+    // Calculate tasks and total export duration
+    const clipTasks = [];
+    let totalExportDuration = 0;
+
     for (const c of clipsToRender) {
       const clipTrimIn = typeof c.trimIn === 'number' ? Math.max(0, c.trimIn) : 0;
       const clipTrimOut = (typeof c.trimOut === 'number' && c.trimOut > clipTrimIn)
         ? Math.min(c.duration || Infinity, c.trimOut)
         : (c.duration || c.rawDuration || 1);
-
-      if (Array.isArray(c.segments) && c.segments.length > 0) {
-        let accum = 0;
-        for (const seg of c.segments) {
-          const segDur = Math.max(0, seg.end - seg.start);
-          const tStart = accum;
-          const tEnd = accum + segDur;
-          accum += segDur;
-
-          // Intersect segment with [clipTrimIn, clipTrimOut]
-          const overlapStart = Math.max(tStart, clipTrimIn);
-          const overlapEnd = Math.min(tEnd, clipTrimOut);
-
-          if (overlapEnd > overlapStart + 0.01) {
-            const sourceStart = seg.start + (overlapStart - tStart);
-            const sourceEnd = seg.start + (overlapEnd - tStart);
-            const dur = overlapEnd - overlapStart;
-            const frames = Math.max(1, Math.round(dur * targetFps));
-            segInfo.push({
-              clip: c,
-              start: sourceStart,
-              end: sourceEnd,
-              duration: dur,
-              frames,
-              timelineOffset: overlapStart
-            });
-          }
-        }
-      } else {
-        const s = clipTrimIn;
-        const e = clipTrimOut;
-        const dur = Math.max(0.04, e - s);
-        const frames = Math.max(1, Math.round(dur * targetFps));
-        segInfo.push({
-          clip: c,
-          start: s,
-          end: e,
-          duration: dur,
-          frames,
-          timelineOffset: s
-        });
-      }
+      const dur = Math.max(0.1, clipTrimOut - clipTrimIn);
+      totalExportDuration += dur;
+      clipTasks.push({
+        clip: c,
+        trimIn: clipTrimIn,
+        trimOut: clipTrimOut,
+        duration: dur
+      });
     }
 
-    const totalFrames = segInfo.reduce((acc, curr) => acc + curr.frames, 0);
+    if (totalExportDuration <= 0) totalExportDuration = 1;
 
     const width = refClip.width || videoElement.videoWidth || 1920;
     const height = refClip.height || videoElement.videoHeight || 1080;
@@ -239,13 +208,28 @@
     renderer.setDimensions(width, height);
 
     // Choose supported mimeType
-    let mimeType = 'video/webm;codecs=vp9';
-    if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm;codecs=vp8';
+    let mimeType = 'video/mp4';
+    if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm;codecs=vp9';
     if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
-    if (MediaRecorder.isTypeSupported('video/mp4')) mimeType = 'video/mp4';
 
     // Capture clean canvas stream
     const stream = renderCanvas.captureStream(targetFps);
+
+    // Audio capture handling
+    const preserveAudio = !projectSession?.audio?.muteOnExport;
+    let audioTrack = null;
+    if (preserveAudio && typeof videoElement.captureStream === 'function') {
+      try {
+        const vStream = videoElement.captureStream();
+        const aTracks = vStream.getAudioTracks();
+        if (aTracks && aTracks.length > 0) {
+          audioTrack = aTracks[0];
+          stream.addTrack(audioTrack);
+        }
+      } catch (err) {
+        console.warn('Audio capture not available:', err);
+      }
+    }
 
     const recordedChunks = [];
     const recorder = new MediaRecorder(stream, {
@@ -258,115 +242,228 @@
     };
 
     return new Promise(async (resolve, reject) => {
+      let isCompleted = false;
+
       recorder.onstop = () => {
+        if (isCompleted) return;
+        isCompleted = true;
         const videoBlob = new Blob(recordedChunks, { type: mimeType });
         onProgress(100, 'Selesai rendering video');
         resolve(videoBlob);
       };
 
-      recorder.onerror = (err) => reject(err);
+      recorder.onerror = (err) => {
+        isCompleted = true;
+        reject(err);
+      };
 
-      recorder.start(100); // 100ms time slice for regular flushing
-
-      // Deterministic frame stepping loop
-      videoElement.pause();
+      // Store initial video state for restoring later
       const initialTime = videoElement.currentTime;
       const initialSrc = videoElement.src;
+      const initialMuted = videoElement.muted;
+      const initialVolume = videoElement.volume;
 
-      const seekVideo = (time) => {
-        return new Promise((res) => {
-          if (Math.abs(videoElement.currentTime - time) < 0.005) {
-            return res();
-          }
-
-          let done = false;
-          const finish = () => {
-            if (done) return;
-            done = true;
-            videoElement.removeEventListener('seeked', onSeeked);
-            clearTimeout(timer);
-            res();
-          };
-
-          const onSeeked = () => finish();
-          const timer = setTimeout(finish, 200);
-
-          videoElement.addEventListener('seeked', onSeeked);
-          videoElement.currentTime = time;
-        });
-      };
+      const seekVideo = (time) => new Promise((res) => {
+        if (Math.abs(videoElement.currentTime - time) < 0.02) return res();
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          videoElement.removeEventListener('seeked', onSeeked);
+          clearTimeout(timer);
+          res();
+        };
+        const onSeeked = () => finish();
+        const timer = setTimeout(finish, 1500);
+        videoElement.addEventListener('seeked', onSeeked);
+        videoElement.currentTime = time;
+      });
 
       const useSource = (url) => new Promise((res) => {
         if (!url || videoElement.src === url) return res();
-        const onLoaded = () => {
-          videoElement.removeEventListener('loadeddata', onLoaded);
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          videoElement.removeEventListener('loadeddata', finish);
+          clearTimeout(timer);
           res();
         };
-        videoElement.addEventListener('loadeddata', onLoaded);
+        const timer = setTimeout(finish, 3000);
+        videoElement.addEventListener('loadeddata', finish);
         videoElement.src = url;
+        videoElement.load();
       });
 
       const restore = async () => {
         try {
+          videoElement.pause();
           if (videoElement.src !== initialSrc) {
             await useSource(initialSrc);
           }
+          videoElement.muted = initialMuted;
+          videoElement.volume = initialVolume;
           videoElement.currentTime = initialTime;
         } catch (e) {}
       };
 
       try {
-        let done = 0;
-        const track = stream.getVideoTracks()[0];
-
-        for (let k = 0; k < segInfo.length; k++) {
-          const seg = segInfo[k];
-          if (seg.clip.blobUrl) {
-            await useSource(seg.clip.blobUrl);
-          }
-
-          for (let i = 0; i < seg.frames; i++) {
-            const currentTime = Math.min(seg.end, seg.start + (i / targetFps));
-            await seekVideo(currentTime);
-
-            // Compute corresponding timeline time for active annotations
-            const timelineTime = seg.clip.sourceToTimelineTime
-              ? seg.clip.sourceToTimelineTime(currentTime)
-              : (seg.timelineOffset + (i / targetFps));
-
-            // Draw full composite frame: base video + annotations + watermark
-            renderer.renderFrame({
-              clip: seg.clip,
-              currentTime: timelineTime,
-              selectedAnnotationId: null,
-              watermarkConfig: projectSession?.watermark,
-              drawBaseVideo: true
-            });
-
-            if (track && typeof track.requestFrame === 'function') {
-              track.requestFrame();
-            }
-
-            done++;
-            const percent = Math.min(99, Math.round((done / totalFrames) * 100));
-            const segLabel = segInfo.length > 1 ? ` [bagian ${k + 1}/${segInfo.length}]` : '';
-            onProgress(percent, `Rendering frame ${done}/${totalFrames} (${percent}%)${segLabel}`);
-
-            // Yield to browser encoding thread
-            await new Promise((r) => setTimeout(r, Math.max(10, Math.floor(1000 / targetFps))));
-          }
+        videoElement.pause();
+        if (!preserveAudio) {
+          videoElement.muted = true;
         }
 
-        // Allow final frames to be processed by encoder
-        await new Promise((r) => setTimeout(r, 150));
+        // Draw initial frame before starting recorder
+        const firstTask = clipTasks[0];
+        if (firstTask && firstTask.clip.blobUrl) {
+          if (videoElement.src !== firstTask.clip.blobUrl) {
+            await useSource(firstTask.clip.blobUrl);
+          }
+          const startSourceT = firstTask.clip.timelineToSourceTime(firstTask.trimIn);
+          await seekVideo(startSourceT);
+          renderer.renderFrame({
+            clip: firstTask.clip,
+            currentTime: firstTask.trimIn,
+            selectedAnnotationId: null,
+            watermarkConfig: projectSession?.watermark,
+            drawBaseVideo: true
+          });
+        }
+
+        recorder.start(100);
+        let accumulatedExportDuration = 0;
+
+        for (let taskIdx = 0; taskIdx < clipTasks.length; taskIdx++) {
+          const task = clipTasks[taskIdx];
+          const curClip = task.clip;
+
+          if (videoElement.src !== curClip.blobUrl && curClip.blobUrl) {
+            if (recorder.state === 'recording') {
+              try { recorder.pause(); } catch (e) {}
+            }
+            await useSource(curClip.blobUrl);
+          }
+
+          const startSourceT = curClip.timelineToSourceTime(task.trimIn);
+          await seekVideo(startSourceT);
+
+          // Draw first frame of this clip
+          renderer.renderFrame({
+            clip: curClip,
+            currentTime: task.trimIn,
+            selectedAnnotationId: null,
+            watermarkConfig: projectSession?.watermark,
+            drawBaseVideo: true
+          });
+
+          if (recorder.state === 'paused') {
+            try { recorder.resume(); } catch (e) {}
+          }
+
+          // Run real-time playback render loop for this clip
+          await new Promise(async (resolveClip, rejectClip) => {
+            let isClipRunning = true;
+            let pendingJump = null;
+
+            try {
+              await videoElement.play();
+            } catch (playErr) {
+              return rejectClip(new Error('Gagal memulai playback video untuk ekspor: ' + playErr.message));
+            }
+
+            const onFrame = async () => {
+              if (!isClipRunning) return;
+
+              const curSourceT = videoElement.currentTime;
+
+              // Seamless ripple cut jump handler
+              if (curClip && typeof curClip.getNextPlaybackJump === 'function') {
+                const jumpTo = curClip.getNextPlaybackJump(curSourceT);
+                if (typeof jumpTo === 'number' && pendingJump !== jumpTo) {
+                  pendingJump = jumpTo;
+                  if (recorder.state === 'recording') {
+                    try { recorder.pause(); } catch (e) {}
+                  }
+                  videoElement.pause();
+                  await seekVideo(jumpTo);
+                  const newTimelineT = curClip.sourceToTimelineTime(videoElement.currentTime);
+                  renderer.renderFrame({
+                    clip: curClip,
+                    currentTime: newTimelineT,
+                    selectedAnnotationId: null,
+                    watermarkConfig: projectSession?.watermark,
+                    drawBaseVideo: true
+                  });
+                  if (recorder.state === 'paused') {
+                    try { recorder.resume(); } catch (e) {}
+                  }
+                  pendingJump = null;
+                  try {
+                    await videoElement.play();
+                  } catch (e) {}
+                  if ('requestVideoFrameCallback' in videoElement) {
+                    videoElement.requestVideoFrameCallback(onFrame);
+                  } else {
+                    requestAnimationFrame(onFrame);
+                  }
+                  return;
+                }
+              }
+
+              const timelineT = curClip.sourceToTimelineTime(curSourceT);
+
+              // Check if end of trim reached or video ended
+              if (timelineT >= task.trimOut - 0.03 || videoElement.ended) {
+                isClipRunning = false;
+                videoElement.pause();
+                accumulatedExportDuration += task.duration;
+                resolveClip();
+                return;
+              }
+
+              // Draw composite frame: base video + annotations + watermark
+              renderer.renderFrame({
+                clip: curClip,
+                currentTime: timelineT,
+                selectedAnnotationId: null,
+                watermarkConfig: projectSession?.watermark,
+                drawBaseVideo: true
+              });
+
+              // Update progress bar
+              const currentOverallTime = accumulatedExportDuration + Math.max(0, timelineT - task.trimIn);
+              const percent = Math.min(99, Math.round((currentOverallTime / totalExportDuration) * 100));
+              const clipLabel = clipTasks.length > 1 ? ` [klip ${taskIdx + 1}/${clipTasks.length}]` : '';
+              onProgress(
+                percent,
+                `Rendering: ${TV.VideoEngine.formatDuration(currentOverallTime)} / ${TV.VideoEngine.formatDuration(totalExportDuration)} (${percent}%)${clipLabel}`
+              );
+
+              if ('requestVideoFrameCallback' in videoElement) {
+                videoElement.requestVideoFrameCallback(onFrame);
+              } else {
+                requestAnimationFrame(onFrame);
+              }
+            };
+
+            if ('requestVideoFrameCallback' in videoElement) {
+              videoElement.requestVideoFrameCallback(onFrame);
+            } else {
+              requestAnimationFrame(onFrame);
+            }
+          });
+        }
+
+        // Allow final frame buffer to flush
+        await new Promise((r) => setTimeout(r, 200));
         await restore();
 
-        if (recorder.state === 'recording') {
+        if (recorder.state === 'recording' || recorder.state === 'paused') {
           recorder.stop();
         }
       } catch (err) {
         await restore();
-        if (recorder.state === 'recording') {
+        if (recorder.state === 'recording' || recorder.state === 'paused') {
           recorder.stop();
         }
         reject(err);

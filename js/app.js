@@ -2009,6 +2009,13 @@
         this.showToast(`Ekspor gagal: ${err.message}`, 'error');
       } finally {
         startBtn.disabled = false;
+        progressContainer.hidden = true;
+        progressFill.style.width = '0%';
+        this.timeline.render({
+          projectSession: this.session,
+          currentTime: this.videoEngine.currentTime,
+          selectedAnnotationId: this.selectedAnnotationId
+        });
       }
     }
 
