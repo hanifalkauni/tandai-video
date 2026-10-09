@@ -1950,6 +1950,11 @@
       progressContainer.hidden = false;
       startBtn.disabled = true;
 
+      // Suspend the engine's internal playback automation so its trim-boundary
+      // seek-back and ripple-cut jumps don't fight the exporter over the shared
+      // <video> element (which caused the export to loop back to the start at 100%).
+      this.videoEngine.suspend();
+
       try {
         if (format === 'snapshot') {
           const blob = await TV.captureFrameSnapshot(
@@ -2008,6 +2013,11 @@
       } catch (err) {
         this.showToast(`Ekspor gagal: ${err.message}`, 'error');
       } finally {
+        // Re-enable the engine's internal playback automation and resync UI/bounds.
+        this.videoEngine.resume();
+        this.videoEngine.setActiveClip(clip);
+        this.videoEngine.setPlaybackBounds(clip.trimIn, clip.trimOut);
+        this._updatePlaybackUI();
         startBtn.disabled = false;
         progressContainer.hidden = true;
         progressFill.style.width = '0%';

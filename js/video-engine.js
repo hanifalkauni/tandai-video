@@ -19,6 +19,10 @@
       this.fps = 30;
       this.isPlaying = false;
       this.activeClip = null;
+      // When true, the engine's internal sync loop, boundary checks and ripple-cut
+      // jumps are suspended so an external driver (e.g. the export engine) can own
+      // playback of the shared <video> element without interference.
+      this.suspended = false;
       this.playbackBounds = { trimIn: 0, trimOut: null };
       this.listeners = {
         timeupdate: [],
@@ -49,7 +53,27 @@
       };
     }
 
+    /**
+     * Suspend the engine's internal playback automation (sync loop, trim-boundary
+     * seek-back, and ripple-cut jumps). Used while an external process such as the
+     * export engine drives the shared <video> element directly. Without this, the
+     * engine's boundaryReached logic would seek the element back to trimIn mid-export,
+     * causing the exporter to loop from the start instead of finishing.
+     */
+    suspend() {
+      this.suspended = true;
+      this._pendingJumpTarget = null;
+      this._stopSyncLoop();
+    }
+
+    /** Re-enable the engine's internal playback automation after an export. */
+    resume() {
+      this.suspended = false;
+      this._pendingJumpTarget = null;
+    }
+
     _checkPlaybackBoundary() {
+      if (this.suspended) return false;
       if (!this.playbackBounds) return false;
       const trimIn = this.playbackBounds.trimIn || 0;
       const trimOut = this.playbackBounds.trimOut;
@@ -75,12 +99,14 @@
       });
 
       this.video.addEventListener('play', () => {
+        if (this.suspended) return;
         this.isPlaying = true;
         this._startSyncLoop();
         this._emit('playstate', { isPlaying: true });
       });
 
       this.video.addEventListener('pause', () => {
+        if (this.suspended) return;
         this.isPlaying = false;
         this._pendingJumpTarget = null;
         this._stopSyncLoop();
@@ -105,6 +131,7 @@
       });
 
       this.video.addEventListener('timeupdate', () => {
+        if (this.suspended) return;
         if (this.isPlaying) {
           if (this.activeClip && typeof this.activeClip.getNextPlaybackJump === 'function') {
             const jumpTo = this.activeClip.getNextPlaybackJump(this.video.currentTime);
@@ -135,9 +162,10 @@
     }
 
     _startSyncLoop() {
+      if (this.suspended) return;
       this._stopSyncLoop();
       const onFrame = (now, metadata) => {
-        if (!this.isPlaying) return;
+        if (!this.isPlaying || this.suspended) return;
 
         // Jump over cut gaps seamlessly
         if (this.activeClip && typeof this.activeClip.getNextPlaybackJump === 'function') {
