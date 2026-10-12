@@ -183,7 +183,11 @@
       super(config);
       this.type = 'highlighter';
       this.style.strokeColor = this.style.strokeColor || '#ffd13b';
-      this.style.fillOpacity = 0.35;
+      // Respect a provided/serialized opacity; only default when none was given, so
+      // the value survives save/load and undo/redo.
+      if (typeof config.style?.fillOpacity !== 'number') {
+        this.style.fillOpacity = 0.35;
+      }
     }
   }
 
@@ -202,7 +206,11 @@
       this.style.strokeColor = this.style.strokeColor || '#ef4444';
       this.style.fillType = this.style.fillType || 'none';
       this.style.fillColor = this.style.fillColor || '#14b8a6';
-      this.style.fillOpacity = 0.85;
+      // Respect a provided/serialized opacity; only default when none was given, so
+      // the value survives save/load and undo/redo.
+      if (typeof config.style?.fillOpacity !== 'number') {
+        this.style.fillOpacity = 0.85;
+      }
       this.recalculateBounds();
     }
 
@@ -535,27 +543,41 @@
       this.segments = newSegments;
       const cutDuration = cutEnd - cutStart;
 
-      // Adjust annotations
+      // Adjust annotations to the new (shorter) timeline. The removed window is
+      // [cutStart, cutEnd]; everything at/after cutEnd shifts left by cutDuration, so
+      // a point that was at cutEnd now sits at cutStart (the join). We clamp shifted
+      // starts to cutStart (NOT 0) to avoid piling annotations at t=0 after repeated cuts.
+      const MIN_DUR = 0.05; // drop only pieces shorter than this (true zero-length)
       const newAnnotations = [];
       for (const ann of this.annotations) {
         if (ann.tEnd <= cutStart) {
+          // Entirely before the cut — unchanged.
           newAnnotations.push(ann);
         } else if (ann.tStart >= cutEnd) {
-          ann.tStart = Math.max(0, ann.tStart - cutDuration);
-          ann.tEnd = Math.max(ann.tStart + 0.1, ann.tEnd - cutDuration);
+          // Entirely after the cut — shift left, clamped at the join point.
+          const dur = ann.tEnd - ann.tStart;
+          ann.tStart = Math.max(cutStart, ann.tStart - cutDuration);
+          ann.tEnd = ann.tStart + Math.max(MIN_DUR, dur);
           newAnnotations.push(ann);
+        } else if (ann.tStart >= cutStart && ann.tEnd <= cutEnd) {
+          // Entirely inside the removed window — drop it.
+          continue;
+        } else if (ann.tStart <= cutStart && ann.tEnd >= cutEnd) {
+          // Spans the whole cut: collapse the removed middle. Keep ONE annotation
+          // (preserve id/selection) covering the joined before+after span.
+          ann.tEnd = Math.max(ann.tStart + MIN_DUR, ann.tEnd - cutDuration);
+          newAnnotations.push(ann);
+        } else if (ann.tStart < cutStart) {
+          // Overlaps the cut's start: keep the part before cutStart (preserve id).
+          ann.tEnd = cutStart;
+          if (ann.tEnd - ann.tStart >= MIN_DUR) newAnnotations.push(ann);
         } else {
-          if (ann.tStart < cutStart && cutStart - ann.tStart >= 0.1) {
-            const cloned = ann.clone();
-            cloned.tEnd = cutStart;
-            newAnnotations.push(cloned);
-          }
-          if (ann.tEnd > cutEnd && ann.tEnd - cutEnd >= 0.1) {
-            const cloned = ann.clone();
-            cloned.tStart = cutStart;
-            cloned.tEnd = cutStart + (ann.tEnd - cutEnd);
-            newAnnotations.push(cloned);
-          }
+          // Overlaps the cut's end (ann.tStart within cut, ann.tEnd after cutEnd):
+          // keep the part after cutEnd, mapped to start at the join (preserve id).
+          const tailDur = ann.tEnd - cutEnd;
+          ann.tStart = cutStart;
+          ann.tEnd = cutStart + Math.max(MIN_DUR, tailDur);
+          newAnnotations.push(ann);
         }
       }
 
@@ -595,24 +617,42 @@
       return this.annotations.find(a => a.id === id) || null;
     }
 
+    /**
+     * Restore a history snapshot. Handles both the current object shape
+     * ({annotations, segments, duration, trimIn, trimOut}) and the legacy bare-array
+     * shape (annotations only). For the legacy shape we also reset segments/duration/
+     * trim to a full-clip baseline so they can never be left inconsistent with the
+     * restored annotations.
+     */
+    _restoreState(state) {
+      if (Array.isArray(state)) {
+        this.annotations = state.map(a => TV.AnnotationFactory.create(a));
+        // Legacy snapshot carried no EDL — reset to the full source as a safe baseline.
+        this.segments = [{ start: 0, end: this.rawDuration }];
+        this.duration = this.getDuration();
+        this.trimIn = 0;
+        this.trimOut = this.duration;
+        return;
+      }
+      this.annotations = (state.annotations || []).map(a => TV.AnnotationFactory.create(a));
+      if (state.segments && state.segments.length > 0) {
+        this.segments = state.segments.map(s => ({ start: s.start, end: s.end }));
+      } else {
+        this.segments = [{ start: 0, end: this.rawDuration }];
+      }
+      this.duration = this.getDuration();
+      if (this.duration <= 0 && this.rawDuration > 0) {
+        this.segments = [{ start: 0, end: this.rawDuration }];
+        this.duration = this.rawDuration;
+      }
+      this.trimIn = typeof state.trimIn === 'number' ? state.trimIn : 0;
+      this.trimOut = typeof state.trimOut === 'number' && state.trimOut > 0 ? state.trimOut : this.duration;
+    }
+
     undo() {
       const state = this.history.undo();
       if (state) {
-        if (Array.isArray(state)) {
-          this.annotations = state.map(a => TV.AnnotationFactory.create(a));
-        } else {
-          this.annotations = (state.annotations || []).map(a => TV.AnnotationFactory.create(a));
-          if (state.segments && state.segments.length > 0) {
-            this.segments = state.segments.map(s => ({ start: s.start, end: s.end }));
-            this.duration = this.getDuration();
-          }
-          if (this.duration <= 0 && this.rawDuration > 0) {
-            this.segments = [{ start: 0, end: this.rawDuration }];
-            this.duration = this.rawDuration;
-          }
-          this.trimIn = typeof state.trimIn === 'number' ? state.trimIn : 0;
-          this.trimOut = typeof state.trimOut === 'number' && state.trimOut > 0 ? state.trimOut : this.duration;
-        }
+        this._restoreState(state);
         return true;
       }
       return false;
@@ -621,21 +661,7 @@
     redo() {
       const state = this.history.redo();
       if (state) {
-        if (Array.isArray(state)) {
-          this.annotations = state.map(a => TV.AnnotationFactory.create(a));
-        } else {
-          this.annotations = (state.annotations || []).map(a => TV.AnnotationFactory.create(a));
-          if (state.segments && state.segments.length > 0) {
-            this.segments = state.segments.map(s => ({ start: s.start, end: s.end }));
-            this.duration = this.getDuration();
-          }
-          if (this.duration <= 0 && this.rawDuration > 0) {
-            this.segments = [{ start: 0, end: this.rawDuration }];
-            this.duration = this.rawDuration;
-          }
-          this.trimIn = typeof state.trimIn === 'number' ? state.trimIn : 0;
-          this.trimOut = typeof state.trimOut === 'number' && state.trimOut > 0 ? state.trimOut : this.duration;
-        }
+        this._restoreState(state);
         return true;
       }
       return false;

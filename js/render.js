@@ -195,7 +195,9 @@
           ctx.save();
           ctx.globalCompositeOperation = 'source-over';
           ctx.fillStyle = strokeColor;
-          ctx.globalAlpha = 0.35;
+          // Use the annotation's stored opacity (default 0.35) so an adjusted value
+          // is honored and survives save/load.
+          ctx.globalAlpha = typeof ann.style.fillOpacity === 'number' ? ann.style.fillOpacity : 0.35;
           ctx.fillRect(ann.x, ann.y, ann.width, ann.height);
           ctx.restore();
           break;
@@ -228,7 +230,9 @@
 
           if (hasFill) {
             ctx.fillStyle = ann.style.fillColor || ann.style.strokeColor || '#14b8a6';
-            ctx.globalAlpha = ann.style.fillType === 'soft' ? 0.88 : 1.0;
+            // Honor the stored fill opacity for the soft (translucent) box; solid stays opaque.
+            const textFillOpacity = typeof ann.style.fillOpacity === 'number' ? ann.style.fillOpacity : 0.85;
+            ctx.globalAlpha = ann.style.fillType === 'soft' ? textFillOpacity : 1.0;
             const rad = Math.min(8, fontSize * 0.25);
             this._drawRoundedRect(ctx, ann.x, ann.y, boxW, boxH, rad, true, false);
             ctx.globalAlpha = 1.0;
