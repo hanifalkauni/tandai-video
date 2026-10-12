@@ -268,10 +268,24 @@
     let audioTrack = null;
     if (preserveAudio && typeof videoElement.captureStream === 'function') {
       try {
-        const vStream = videoElement.captureStream();
-        const aTracks = vStream.getAudioTracks();
-        if (aTracks && aTracks.length > 0) {
-          audioTrack = aTracks[0];
+        // Reuse one persistent capture stream per <video> element across exports.
+        // Re-calling captureStream() every export can leave the previous export's
+        // audio track in an 'ended' state; adding an ended track to the next
+        // recorder corrupts the muxed output (wrong duration / empty / garbled),
+        // which is exactly why the 2nd+ export came out wrong. Cache it and only
+        // re-capture when the cached track is gone or ended.
+        let vStream = videoElement._tvCaptureStream;
+        let aTrack = vStream ? vStream.getAudioTracks()[0] : null;
+        if (!vStream || !aTrack || aTrack.readyState === 'ended') {
+          vStream = videoElement.captureStream();
+          videoElement._tvCaptureStream = vStream;
+          aTrack = vStream.getAudioTracks()[0] || null;
+          TV.exportLog('audio.recaptured');
+        } else {
+          TV.exportLog('audio.reusedCache');
+        }
+        if (aTrack && aTrack.readyState === 'live') {
+          audioTrack = aTrack;
           stream.addTrack(audioTrack);
         }
       } catch (err) {
@@ -292,6 +306,26 @@
     return new Promise(async (resolve, reject) => {
       let isCompleted = false;
       let stopWatchdog = null;
+      let streamsCleaned = false;
+
+      // Release every MediaStreamTrack we created/borrowed for this export. Without
+      // this, the canvas capture track and the <video>'s audio track stay live after
+      // the export finishes; the next export then reuses/collides with those stale
+      // tracks and produces a wrong or empty video. Must run on EVERY exit path.
+      const cleanupStreams = () => {
+        if (streamsCleaned) return;
+        streamsCleaned = true;
+        try {
+          if (audioTrack && stream) { try { stream.removeTrack(audioTrack); } catch (e) {} }
+          // Stop the canvas capture track(s). We do NOT stop the audio track here
+          // because it belongs to the shared <video> element's own capture stream;
+          // stopping it would kill the element's audio for subsequent playback.
+          if (stream) {
+            stream.getVideoTracks().forEach((t) => { try { t.stop(); } catch (e) {} });
+          }
+        } catch (e) {}
+        TV.exportLog('streams.cleaned');
+      };
 
       const finalizeRecording = (reason) => {
         if (isCompleted) return;
@@ -299,6 +333,7 @@
         if (stopWatchdog) { clearTimeout(stopWatchdog); stopWatchdog = null; }
         const videoBlob = new Blob(recordedChunks, { type: mimeType });
         TV.exportLog('recording.finalized', { reason, chunks: recordedChunks.length, bytes: videoBlob.size });
+        cleanupStreams();
         onProgress(99, 'Menyelesaikan rekaman video...');
         resolve(videoBlob);
       };
@@ -312,6 +347,7 @@
         TV.exportLog('recorder.onerror', String(err?.message || err));
         if (stopWatchdog) { clearTimeout(stopWatchdog); stopWatchdog = null; }
         isCompleted = true;
+        cleanupStreams();
         reject(err);
       };
 
@@ -602,6 +638,7 @@
           try { recorder.stop(); } catch (e) {}
         }
         if (stopWatchdog) { clearTimeout(stopWatchdog); stopWatchdog = null; }
+        cleanupStreams();
         reject(err);
       }
     });
