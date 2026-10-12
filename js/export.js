@@ -10,6 +10,30 @@
   const TV = (global.TV = global.TV || {});
 
   /* --------------------------------------------------------------------------
+     Export diagnostics logger
+     --------------------------------------------------------------------------
+     Lightweight, timestamped stage logger to pinpoint where an export/download
+     appears to "stall". Disabled by default; enable at runtime from the console
+     with:  TV.exportDebug = true   (or window.localStorage 'tv_export_debug').
+     Each call prints the stage label and ms elapsed since the export started.
+     -------------------------------------------------------------------------- */
+  TV.exportDebug = (() => {
+    try { return global.localStorage?.getItem('tv_export_debug') === '1'; }
+    catch (e) { return false; }
+  })();
+
+  let _exportT0 = 0;
+  TV.exportLog = (stage, extra) => {
+    if (!TV.exportDebug) return;
+    const now = (global.performance && performance.now) ? performance.now() : Date.now();
+    if (!_exportT0 || stage === 'START') _exportT0 = now;
+    const ms = Math.round(now - _exportT0);
+    const suffix = extra !== undefined ? ` ${typeof extra === 'object' ? JSON.stringify(extra) : extra}` : '';
+    // eslint-disable-next-line no-console
+    console.log(`[export +${ms}ms] ${stage}${suffix}`);
+  };
+
+  /* --------------------------------------------------------------------------
      CRC-32 & ZIP Packaging (STORE-only, 100% Local Vanilla JS)
      -------------------------------------------------------------------------- */
   const crcTable = (() => {
@@ -165,6 +189,7 @@
      Video Render & Export Engine (Deterministic Client-Side Render)
      -------------------------------------------------------------------------- */
   TV.exportVideo = async function (projectSession, clip, videoElement, options = {}, onProgress = () => {}) {
+    TV.exportLog('exportVideo.begin');
     const clipsToRender = (options.clips && options.clips.length)
       ? options.clips
       : (options.activeClipOnly)
@@ -266,16 +291,26 @@
 
     return new Promise(async (resolve, reject) => {
       let isCompleted = false;
+      let stopWatchdog = null;
 
-      recorder.onstop = () => {
+      const finalizeRecording = (reason) => {
         if (isCompleted) return;
         isCompleted = true;
+        if (stopWatchdog) { clearTimeout(stopWatchdog); stopWatchdog = null; }
         const videoBlob = new Blob(recordedChunks, { type: mimeType });
-        onProgress(100, 'Selesai rendering video');
+        TV.exportLog('recording.finalized', { reason, chunks: recordedChunks.length, bytes: videoBlob.size });
+        onProgress(99, 'Menyelesaikan rekaman video...');
         resolve(videoBlob);
       };
 
+      recorder.onstop = () => {
+        TV.exportLog('recorder.onstop');
+        finalizeRecording('onstop');
+      };
+
       recorder.onerror = (err) => {
+        TV.exportLog('recorder.onerror', String(err?.message || err));
+        if (stopWatchdog) { clearTimeout(stopWatchdog); stopWatchdog = null; }
         isCompleted = true;
         reject(err);
       };
@@ -540,17 +575,33 @@
         }
 
         // Allow final frame buffer to flush
+        TV.exportLog('render.allClipsDone');
+        onProgress(99, 'Menyelesaikan rekaman video...');
         await new Promise((r) => setTimeout(r, 200));
         await restore();
 
         if (recorder.state === 'recording' || recorder.state === 'paused') {
+          TV.exportLog('recorder.stop.request', { state: recorder.state });
+          // Nudge out any buffered data before stopping so the final chunk isn't lost.
+          try { recorder.requestData(); } catch (e) {}
           recorder.stop();
+          // Safety net: on some Chromium builds `onstop` can fire late or (rarely)
+          // not at all after stop(), leaving the UI pinned at 99%. If it hasn't
+          // fired shortly, finalize the blob from the chunks we already captured.
+          stopWatchdog = setTimeout(() => {
+            TV.exportLog('recorder.stop.watchdogFired');
+            finalizeRecording('watchdog');
+          }, 1500);
+        } else {
+          // Recorder already inactive — finalize immediately from captured chunks.
+          finalizeRecording('inactive');
         }
       } catch (err) {
         await restore();
         if (recorder.state === 'recording' || recorder.state === 'paused') {
-          recorder.stop();
+          try { recorder.stop(); } catch (e) {}
         }
+        if (stopWatchdog) { clearTimeout(stopWatchdog); stopWatchdog = null; }
         reject(err);
       }
     });
@@ -559,8 +610,14 @@
   /* --------------------------------------------------------------------------
      Evidence ZIP Package + SHA-256 Manifest
      -------------------------------------------------------------------------- */
+  // Yield control back to the browser so the progress bar can repaint between
+  // heavy synchronous steps (buffer reads, hashing, zip assembly).
+  const _yieldToUI = () => new Promise((r) => setTimeout(r, 0));
+
   TV.exportEvidenceBundle = async function (projectSession, clip, videoBlob, snapshotBlob, onProgress = () => {}) {
-    onProgress(10, 'Menghitung hash kriptografi SHA-256...');
+    TV.exportLog('zip.begin', { videoBytes: videoBlob?.size });
+    onProgress(30, 'Membaca data video...');
+    await _yieldToUI();
 
     const stamp = TV.fileStamp(new Date());
     const ticket = TV.safeName(projectSession.watermark?.ticket) || 'EVIDENCE';
@@ -573,11 +630,17 @@
     const snapshotU8 = snapshotBlob ? new Uint8Array(await snapshotBlob.arrayBuffer()) : null;
     const projectJsonStr = JSON.stringify(projectSession.toJSON(), null, 2);
     const projectU8 = new TextEncoder().encode(projectJsonStr);
+    TV.exportLog('zip.buffersRead');
 
-    onProgress(40, 'Membuat manifest integritas forensik...');
+    onProgress(45, 'Menghitung hash SHA-256...');
+    await _yieldToUI();
     const videoHash = await TV.sha256(videoU8);
     const snapshotHash = snapshotU8 ? await TV.sha256(snapshotU8) : 'N/A';
     const projectHash = await TV.sha256(projectU8);
+    TV.exportLog('zip.hashed');
+
+    onProgress(70, 'Membuat manifest integritas forensik...');
+    await _yieldToUI();
 
     const manifestContent = [
       '========================================================================',
@@ -600,7 +663,8 @@
 
     const manifestU8 = new TextEncoder().encode(manifestContent);
 
-    onProgress(70, 'Mengemas berkas ke dalam arsip ZIP...');
+    onProgress(85, 'Mengemas berkas ke dalam arsip ZIP...');
+    await _yieldToUI();
     const filesToZip = [
       { name: videoFileName, data: videoU8 },
       { name: 'manifest.txt', data: manifestU8 },
@@ -612,7 +676,8 @@
     }
 
     const zipBlob = TV.zip(filesToZip);
-    onProgress(100, 'Paket ZIP bukti siap diunduh.');
+    TV.exportLog('zip.assembled', { bytes: zipBlob?.size });
+    onProgress(99, 'Paket ZIP bukti siap diunduh.');
 
     return {
       zipBlob,

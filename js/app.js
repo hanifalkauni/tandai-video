@@ -1969,17 +1969,22 @@
           return;
         }
 
+        const setProgress = (percent, text) => {
+          progressFill.style.width = `${percent}%`;
+          progressLabel.textContent = text;
+        };
+
+        TV.exportLog?.('START', { format });
+
         // Render video klip
         const videoBlob = await TV.exportVideo(
           this.session,
           clip,
           this._dom.video,
           { fps: clip.fps || 30 },
-          (percent, text) => {
-            progressFill.style.width = `${percent}%`;
-            progressLabel.textContent = text;
-          }
+          setProgress
         );
+        TV.exportLog?.('videoBlob.ready', { bytes: videoBlob?.size });
 
         if (format === 'zip') {
           // Export full bundle
@@ -1989,23 +1994,30 @@
             this.videoEngine.currentTime,
             this.session.watermark
           );
+          TV.exportLog?.('zip.snapshotReady');
           const { zipBlob, fileName } = await TV.exportEvidenceBundle(
             this.session,
             clip,
             videoBlob,
             snapshotBlob,
-            (percent, text) => {
-              progressFill.style.width = `${percent}%`;
-              progressLabel.textContent = text;
-            }
+            setProgress
           );
+          TV.exportLog?.('zip.ready', { bytes: zipBlob?.size });
+          // The blob is fully built here; the remaining step is handing the file to
+          // the browser. Mark 100% explicitly so the bar never lingers at 99% waiting
+          // on recorder/zip timing.
+          setProgress(100, 'Menyiapkan unduhan...');
           TV.downloadBlob(zipBlob, fileName);
+          TV.exportLog?.('download.triggered', { fileName });
           this.showToast('Paket ZIP Bukti + SHA-256 berhasil diunduh!', 'success');
         } else {
           // Single video file
           const ext = videoBlob.type.includes('mp4') ? 'mp4' : 'webm';
           const ticket = TV.safeName(this.session.watermark?.ticket) || 'EVIDENCE';
-          TV.downloadBlob(videoBlob, `${ticket}_${TV.fileStamp(new Date())}.${ext}`);
+          const fileName = `${ticket}_${TV.fileStamp(new Date())}.${ext}`;
+          setProgress(100, 'Menyiapkan unduhan...');
+          TV.downloadBlob(videoBlob, fileName);
+          TV.exportLog?.('download.triggered', { fileName });
           this.showToast('Video beranotasi berhasil diunduh!', 'success');
         }
 
