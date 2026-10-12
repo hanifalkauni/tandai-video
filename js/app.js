@@ -1986,6 +1986,17 @@
         );
         TV.exportLog?.('videoBlob.ready', { bytes: videoBlob?.size });
 
+        // Remux the fragmented MediaRecorder MP4 into a progressive, seekable MP4 so
+        // the exported file can be scrubbed in external players (VLC / Windows Media
+        // Player). No re-encode. Falls back to the original blob if remux isn't
+        // possible. WebM output (non-Chromium) is left untouched.
+        let deliverBlob = videoBlob;
+        if ((videoBlob.type || '').includes('mp4') && typeof TV.remuxToSeekableMp4 === 'function') {
+          setProgress(99, 'Mengoptimalkan video agar bisa di-seek...');
+          deliverBlob = await TV.remuxToSeekableMp4(videoBlob);
+          TV.exportLog?.('remux.applied', { before: videoBlob.size, after: deliverBlob.size });
+        }
+
         if (format === 'zip') {
           // Export full bundle
           const snapshotBlob = await TV.captureFrameSnapshot(
@@ -1998,7 +2009,7 @@
           const { zipBlob, fileName } = await TV.exportEvidenceBundle(
             this.session,
             clip,
-            videoBlob,
+            deliverBlob,
             snapshotBlob,
             setProgress
           );
@@ -2012,11 +2023,11 @@
           this.showToast('Paket ZIP Bukti + SHA-256 berhasil diunduh!', 'success');
         } else {
           // Single video file
-          const ext = videoBlob.type.includes('mp4') ? 'mp4' : 'webm';
+          const ext = deliverBlob.type.includes('mp4') ? 'mp4' : 'webm';
           const ticket = TV.safeName(this.session.watermark?.ticket) || 'EVIDENCE';
           const fileName = `${ticket}_${TV.fileStamp(new Date())}.${ext}`;
           setProgress(100, 'Menyiapkan unduhan...');
-          TV.downloadBlob(videoBlob, fileName);
+          TV.downloadBlob(deliverBlob, fileName);
           TV.exportLog?.('download.triggered', { fileName });
           this.showToast('Video beranotasi berhasil diunduh!', 'success');
         }

@@ -153,6 +153,143 @@
   };
 
   /* --------------------------------------------------------------------------
+     Remux fragmented MP4 (from MediaRecorder) -> non-fragmented, seekable MP4
+     --------------------------------------------------------------------------
+     MediaRecorder produces a FRAGMENTED MP4 (moof/mdat fragments, no consolidated
+     sample index). Such files play from the start but CANNOT be scrubbed/seeked in
+     external players like VLC or Windows Media Player. This remux copies the already
+     encoded samples (NO re-encode, no quality loss) into a progressive MP4 with a
+     full sample index (stts/stsz/stco/stss) and faststart moov, which restores
+     seeking everywhere. 100% client-side using vendored mp4box.js + mp4-muxer.
+
+     Returns the original blob unchanged if remux isn't possible (libs missing,
+     non-MP4, non-AVC video, or any parse error) so export never breaks.
+     -------------------------------------------------------------------------- */
+  const _box2u8 = (box) => {
+    const DataStream = (window.MP4Box && window.MP4Box.DataStream);
+    if (!DataStream) return null;
+    const s = new DataStream(undefined, 0, DataStream.BIG_ENDIAN);
+    box.write(s);
+    return new Uint8Array(s.buffer.slice(8)); // strip 8-byte box header
+  };
+
+  TV.remuxToSeekableMp4 = async function (blob) {
+    const MP4Box = window.MP4Box;
+    const Mp4Muxer = window.Mp4Muxer;
+    // Only attempt for MP4 input with both libs present.
+    const isMp4 = blob && (blob.type.includes('mp4') || blob.type === '');
+    if (!isMp4 || !MP4Box || !Mp4Muxer || !Mp4Muxer.Muxer) {
+      TV.exportLog('remux.skip', { reason: !isMp4 ? 'not-mp4' : 'libs-missing' });
+      return blob;
+    }
+
+    try {
+      TV.exportLog('remux.begin', { bytes: blob.size });
+      const ab = await blob.arrayBuffer();
+      ab.fileStart = 0;
+
+      const input = MP4Box.createFile();
+      const tracks = {}; // trackId -> { info, kind, descr, samples: [] }
+      let fatal = null;
+
+      await new Promise((resolve, reject) => {
+        input.onError = (e) => { fatal = e; reject(new Error('MP4Box parse error: ' + e)); };
+        input.onReady = (info) => {
+          try {
+            for (const t of info.tracks) {
+              const trak = input.getTrackById(t.id);
+              const entry = trak.mdia.minf.stbl.stsd.entries[0];
+              const boxes = entry.boxes || [];
+              let kind = null, descr = null;
+              if (t.type === 'video' && (t.codec || '').startsWith('avc')) {
+                kind = 'video';
+                const avcC = boxes.find((b) => b.type === 'avcC');
+                descr = avcC ? _box2u8(avcC) : null;
+              } else if (t.type === 'audio' && (t.codec || '').startsWith('mp4a')) {
+                kind = 'audio';
+                const esds = boxes.find((b) => b.type === 'esds');
+                try {
+                  const dsi = esds && esds.esd && esds.esd.descs[0] && esds.esd.descs[0].descs[0];
+                  if (dsi && dsi.data) descr = new Uint8Array(dsi.data);
+                } catch (e) {}
+              } else {
+                continue; // skip unsupported track types/codecs
+              }
+              tracks[t.id] = { info: t, kind, descr, samples: [] };
+              input.setExtractionOptions(t.id, null, { nbSamples: Number.MAX_SAFE_INTEGER });
+            }
+            input.start();
+          } catch (e) { reject(e); return; }
+        };
+        input.onSamples = (trackId, user, samples) => {
+          const t = tracks[trackId];
+          if (!t) return;
+          for (const s of samples) {
+            t.samples.push({
+              data: new Uint8Array(s.data),
+              cts: s.cts, dts: s.dts, duration: s.duration, is_sync: s.is_sync
+            });
+          }
+        };
+        // appendBuffer + flush drive onReady/onSamples synchronously for an
+        // in-memory buffer; resolve on the next microtask once flushed.
+        input.appendBuffer(ab);
+        input.flush();
+        resolve();
+      });
+
+      if (fatal) return blob;
+
+      const vid = Object.values(tracks).find((t) => t.kind === 'video');
+      const aud = Object.values(tracks).find((t) => t.kind === 'audio');
+      if (!vid || !vid.samples.length) {
+        TV.exportLog('remux.skip', { reason: 'no-avc-video' });
+        return blob; // nothing we can safely remux
+      }
+
+      const { Muxer, ArrayBufferTarget } = Mp4Muxer;
+      const target = new ArrayBufferTarget();
+      const cfg = { target, fastStart: 'in-memory' };
+      cfg.video = { codec: 'avc', width: vid.info.track_width, height: vid.info.track_height };
+      if (aud && aud.samples.length && aud.descr) {
+        cfg.audio = {
+          codec: 'aac',
+          numberOfChannels: aud.info.audio.channel_count || 2,
+          sampleRate: aud.info.audio.sample_rate || 48000
+        };
+      }
+      const muxer = new Muxer(cfg);
+
+      const pump = (t, addRaw, codecStr) => {
+        const ts = t.info.timescale || 1;
+        let first = true;
+        for (const s of t.samples) {
+          const tUs = Math.round((s.cts / ts) * 1e6);
+          const dUs = Math.round((s.duration / ts) * 1e6);
+          const meta = (first && t.descr)
+            ? { decoderConfig: { codec: codecStr, description: t.descr } }
+            : undefined;
+          first = false;
+          addRaw(s.data, s.is_sync ? 'key' : 'delta', tUs, dUs, meta);
+        }
+      };
+
+      pump(vid, muxer.addVideoChunkRaw.bind(muxer), 'avc1.42001f');
+      if (cfg.audio) pump(aud, muxer.addAudioChunkRaw.bind(muxer), 'mp4a.40.2');
+
+      muxer.finalize();
+      const out = new Blob([target.buffer], { type: 'video/mp4' });
+      TV.exportLog('remux.done', { bytes: out.size, video: vid.samples.length, audio: aud ? aud.samples.length : 0 });
+      return out;
+    } catch (err) {
+      // Any failure -> keep the original (still plays, just not seekable externally).
+      TV.exportLog('remux.error', String(err && err.message || err));
+      console.warn('MP4 remux failed, exporting original recording:', err);
+      return blob;
+    }
+  };
+
+  /* --------------------------------------------------------------------------
      Frame Snapshot (PNG / Clipboard API)
      -------------------------------------------------------------------------- */
   TV.captureFrameSnapshot = async (videoElement, clip, currentTime, watermarkConfig) => {
