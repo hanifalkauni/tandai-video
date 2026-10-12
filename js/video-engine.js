@@ -72,6 +72,42 @@
       this._pendingJumpTarget = null;
     }
 
+    /**
+     * Seamlessly skip over a ripple-cut gap during playback. Returns true if a seek
+     * was issued this tick (caller should stop processing the current frame).
+     *
+     * Loop-proofing: once a jump to a given target is issued we remember it in
+     * _pendingJumpTarget and do not re-issue the same jump while the element is still
+     * seeking or still approaching that target. The target is considered reached as
+     * soon as we are within an epsilon of it, so a keyframe-snapped seek that lands
+     * just short of nextSeg.start can't retrigger the gap and freeze playback.
+     */
+    _handleCutGapJump() {
+      if (this.suspended) return false;
+      if (!this.activeClip || typeof this.activeClip.getNextPlaybackJump !== 'function') {
+        this._pendingJumpTarget = null;
+        return false;
+      }
+      const EPS = 0.08;
+      const jumpTo = this.activeClip.getNextPlaybackJump(this.video.currentTime);
+      if (typeof jumpTo !== 'number') {
+        this._pendingJumpTarget = null;
+        return false;
+      }
+      // Already resolved this gap (we're at/past the target) -> let playback continue.
+      if (this.video.currentTime >= jumpTo - EPS) {
+        this._pendingJumpTarget = null;
+        return false;
+      }
+      // A jump to this target is already in flight; don't stack another seek.
+      if (this.video.seeking || this._pendingJumpTarget === jumpTo) {
+        return false;
+      }
+      this._pendingJumpTarget = jumpTo;
+      this.video.currentTime = jumpTo;
+      return true;
+    }
+
     _checkPlaybackBoundary() {
       if (this.suspended) return false;
       if (!this.playbackBounds) return false;
@@ -133,21 +169,7 @@
       this.video.addEventListener('timeupdate', () => {
         if (this.suspended) return;
         if (this.isPlaying) {
-          if (this.activeClip && typeof this.activeClip.getNextPlaybackJump === 'function') {
-            const jumpTo = this.activeClip.getNextPlaybackJump(this.video.currentTime);
-            if (typeof jumpTo === 'number') {
-              if (!this.video.seeking && this._pendingJumpTarget !== jumpTo) {
-                this._pendingJumpTarget = jumpTo;
-                this.video.currentTime = jumpTo;
-                return;
-              }
-              if (this.video.currentTime >= jumpTo - 0.05) {
-                this._pendingJumpTarget = null;
-              }
-            } else {
-              this._pendingJumpTarget = null;
-            }
-          }
+          if (this._handleCutGapJump()) return;
           if (this._checkPlaybackBoundary()) {
             return;
           }
@@ -168,21 +190,7 @@
         if (!this.isPlaying || this.suspended) return;
 
         // Jump over cut gaps seamlessly
-        if (this.activeClip && typeof this.activeClip.getNextPlaybackJump === 'function') {
-          const jumpTo = this.activeClip.getNextPlaybackJump(this.video.currentTime);
-          if (typeof jumpTo === 'number') {
-            if (!this.video.seeking && this._pendingJumpTarget !== jumpTo) {
-              this._pendingJumpTarget = jumpTo;
-              this.video.currentTime = jumpTo;
-              return;
-            }
-            if (this.video.currentTime >= jumpTo - 0.05) {
-              this._pendingJumpTarget = null;
-            }
-          } else {
-            this._pendingJumpTarget = null;
-          }
-        }
+        if (this._handleCutGapJump()) return;
 
         if (this._checkPlaybackBoundary()) {
           return;
@@ -265,13 +273,9 @@
           this.currentTime = startT;
         }
       }
-      if (this.activeClip && typeof this.activeClip.getNextPlaybackJump === 'function') {
-        const jumpTo = this.activeClip.getNextPlaybackJump(this.video.currentTime);
-        if (typeof jumpTo === 'number' && !this.video.seeking) {
-          this._pendingJumpTarget = jumpTo;
-          this.video.currentTime = jumpTo;
-        }
-      }
+      // If playback is starting from inside a ripple-cut gap, pre-roll past it so the
+      // element doesn't begin playing a trimmed-out region.
+      this._handleCutGapJump();
       try {
         await this.video.play();
       } catch (err) {

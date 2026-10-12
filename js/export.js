@@ -212,8 +212,31 @@
     if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm;codecs=vp9';
     if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
 
-    // Capture clean canvas stream
-    const stream = renderCanvas.captureStream(targetFps);
+    // Capture clean canvas stream. We prefer manual frame-pumping (captureStream(0))
+    // so we control exactly when each frame is published to the recorder via
+    // videoTrack.requestFrame(). This gives a steady output fps and lets us hold the
+    // recorder's first frame until a real composite is painted (avoids a black intro).
+    let stream;
+    let canManualFrame = false;
+    try {
+      stream = renderCanvas.captureStream(0);
+      const vt = stream.getVideoTracks()[0];
+      canManualFrame = !!(vt && typeof vt.requestFrame === 'function');
+      if (!canManualFrame) {
+        // Track exists but can't be pumped manually; fall back to fixed-rate capture.
+        stream.getTracks().forEach(t => t.stop());
+        stream = renderCanvas.captureStream(targetFps);
+      }
+    } catch (e) {
+      stream = renderCanvas.captureStream(targetFps);
+      canManualFrame = false;
+    }
+    const canvasVideoTrack = stream.getVideoTracks()[0] || null;
+    const publishFrame = () => {
+      if (canManualFrame && canvasVideoTrack && typeof canvasVideoTrack.requestFrame === 'function') {
+        try { canvasVideoTrack.requestFrame(); } catch (e) {}
+      }
+    };
 
     // Audio capture handling
     const preserveAudio = !projectSession?.audio?.muteOnExport;
@@ -279,6 +302,20 @@
         videoElement.currentTime = time;
       });
 
+      // Resolve once the <video> has actually presented a decoded frame, so a
+      // subsequent drawImage() copies real pixels instead of a blank buffer.
+      const waitForVideoFrame = (video) => new Promise((res) => {
+        if ('requestVideoFrameCallback' in video) {
+          let settled = false;
+          const done = () => { if (!settled) { settled = true; res(); } };
+          video.requestVideoFrameCallback(() => done());
+          // Safety timeout so we never hang if no new frame is presented.
+          setTimeout(done, 300);
+        } else {
+          setTimeout(res, 60);
+        }
+      });
+
       const useSource = (url) => new Promise((res) => {
         if (!url || videoElement.src === url) return res();
         let done = false;
@@ -321,6 +358,10 @@
           }
           const startSourceT = firstTask.clip.timelineToSourceTime(firstTask.trimIn);
           await seekVideo(startSourceT);
+          // Wait until the decoder has actually presented the frame at this time,
+          // otherwise drawImage() copies a blank/black buffer into the canvas and the
+          // export opens with a few black frames before real pixels arrive.
+          await waitForVideoFrame(videoElement);
           renderer.renderFrame({
             clip: firstTask.clip,
             currentTime: firstTask.trimIn,
@@ -328,6 +369,8 @@
             watermarkConfig: projectSession?.watermark,
             drawBaseVideo: true
           });
+          // Publish this real first frame to the capture stream before recording starts.
+          publishFrame();
         }
 
         recorder.start(100);
@@ -361,96 +404,138 @@
           }
 
           // Run real-time playback render loop for this clip
-          await new Promise(async (resolveClip, rejectClip) => {
+          await new Promise(async (resolveClipRaw, rejectClip) => {
             let isClipRunning = true;
             let pendingJump = null;
+
+            // Watchdog state: detect when the <video> stops presenting new frames
+            // near the end of the clip. requestVideoFrameCallback only fires while
+            // frames are actually painted, so the final fraction of a second can
+            // stop firing before `ended` or the trimOut threshold is hit, leaving
+            // the export stuck just short of 100%.
+            let watchdog = null;
+            let lastSourceT = -1;
+            let stalledTicks = 0;
+            let drawTimer = null;
+
+            const finishClip = () => {
+              if (!isClipRunning) return;
+              isClipRunning = false;
+              if (watchdog) { clearInterval(watchdog); watchdog = null; }
+              if (drawTimer) { clearInterval(drawTimer); drawTimer = null; }
+              videoElement.removeEventListener('ended', onEnded);
+              try { videoElement.pause(); } catch (e) {}
+              accumulatedExportDuration += task.duration;
+              resolveClipRaw();
+            };
+
+            const onEnded = () => finishClip();
+            videoElement.addEventListener('ended', onEnded);
 
             try {
               await videoElement.play();
             } catch (playErr) {
+              if (watchdog) { clearInterval(watchdog); watchdog = null; }
+              videoElement.removeEventListener('ended', onEnded);
               return rejectClip(new Error('Gagal memulai playback video untuk ekspor: ' + playErr.message));
             }
 
-            const onFrame = async () => {
+            // Safety net: if frame callbacks dry up near the end, this watchdog
+            // still completes the clip. It fires on a timer independent of frame
+            // presentation, so a plateaued currentTime won't hang the export.
+            watchdog = setInterval(() => {
               if (!isClipRunning) return;
-
+              if (pendingJump !== null || videoElement.seeking) return;
               const curSourceT = videoElement.currentTime;
-
-              // Seamless ripple cut jump handler
-              if (curClip && typeof curClip.getNextPlaybackJump === 'function') {
-                const jumpTo = curClip.getNextPlaybackJump(curSourceT);
-                if (typeof jumpTo === 'number' && pendingJump !== jumpTo) {
-                  pendingJump = jumpTo;
-                  if (recorder.state === 'recording') {
-                    try { recorder.pause(); } catch (e) {}
-                  }
-                  videoElement.pause();
-                  await seekVideo(jumpTo);
-                  const newTimelineT = curClip.sourceToTimelineTime(videoElement.currentTime);
-                  renderer.renderFrame({
-                    clip: curClip,
-                    currentTime: newTimelineT,
-                    selectedAnnotationId: null,
-                    watermarkConfig: projectSession?.watermark,
-                    drawBaseVideo: true
-                  });
-                  if (recorder.state === 'paused') {
-                    try { recorder.resume(); } catch (e) {}
-                  }
-                  pendingJump = null;
-                  try {
-                    await videoElement.play();
-                  } catch (e) {}
-                  if ('requestVideoFrameCallback' in videoElement) {
-                    videoElement.requestVideoFrameCallback(onFrame);
-                  } else {
-                    requestAnimationFrame(onFrame);
-                  }
-                  return;
-                }
-              }
-
               const timelineT = curClip.sourceToTimelineTime(curSourceT);
-
-              // Check if end of trim reached or video ended
-              if (timelineT >= task.trimOut - 0.03 || videoElement.ended) {
-                isClipRunning = false;
-                videoElement.pause();
-                accumulatedExportDuration += task.duration;
-                resolveClip();
+              if (timelineT >= task.trimOut - 0.08 || videoElement.ended) {
+                finishClip();
                 return;
               }
+              // Playback time not advancing while we're supposed to be playing =>
+              // treat as a stall and finish once it has been stuck for a moment.
+              if (!videoElement.paused) {
+                if (Math.abs(curSourceT - lastSourceT) < 0.001) {
+                  stalledTicks++;
+                  if (stalledTicks >= 6) { // ~900ms of no progress
+                    finishClip();
+                    return;
+                  }
+                } else {
+                  stalledTicks = 0;
+                }
+                lastSourceT = curSourceT;
+              }
+            }, 150);
 
-              // Draw composite frame: base video + annotations + watermark
-              renderer.renderFrame({
-                clip: curClip,
-                currentTime: timelineT,
-                selectedAnnotationId: null,
-                watermarkConfig: projectSession?.watermark,
-                drawBaseVideo: true
-              });
+            // Steady-rate frame pump. We draw + publish exactly one frame per tick at
+            // targetFps instead of following the source decode cadence. This keeps the
+            // output frame rate even (no choppiness) and, combined with manual
+            // requestFrame(), stops the recorder from sampling stale/blank canvas states.
+            const frameInterval = 1000 / targetFps;
+            let drawing = false;
 
-              // Update progress bar
-              const currentOverallTime = accumulatedExportDuration + Math.max(0, timelineT - task.trimIn);
-              const percent = Math.min(99, Math.round((currentOverallTime / totalExportDuration) * 100));
-              const clipLabel = clipTasks.length > 1 ? ` [klip ${taskIdx + 1}/${clipTasks.length}]` : '';
-              onProgress(
-                percent,
-                `Rendering: ${TV.VideoEngine.formatDuration(currentOverallTime)} / ${TV.VideoEngine.formatDuration(totalExportDuration)} (${percent}%)${clipLabel}`
-              );
+            const drawTick = async () => {
+              if (!isClipRunning || drawing) return;
+              drawing = true;
+              try {
+                const curSourceT = videoElement.currentTime;
 
-              if ('requestVideoFrameCallback' in videoElement) {
-                videoElement.requestVideoFrameCallback(onFrame);
-              } else {
-                requestAnimationFrame(onFrame);
+                // Seamless ripple cut jump handler
+                if (curClip && typeof curClip.getNextPlaybackJump === 'function') {
+                  const jumpTo = curClip.getNextPlaybackJump(curSourceT);
+                  if (typeof jumpTo === 'number' && pendingJump !== jumpTo) {
+                    pendingJump = jumpTo;
+                    videoElement.pause();
+                    await seekVideo(jumpTo);
+                    await waitForVideoFrame(videoElement);
+                    const newTimelineT = curClip.sourceToTimelineTime(videoElement.currentTime);
+                    renderer.renderFrame({
+                      clip: curClip,
+                      currentTime: newTimelineT,
+                      selectedAnnotationId: null,
+                      watermarkConfig: projectSession?.watermark,
+                      drawBaseVideo: true
+                    });
+                    publishFrame();
+                    pendingJump = null;
+                    if (isClipRunning) { try { await videoElement.play(); } catch (e) {} }
+                    return;
+                  }
+                }
+
+                const timelineT = curClip.sourceToTimelineTime(curSourceT);
+
+                // Check if end of trim reached or video ended
+                if (timelineT >= task.trimOut - 0.03 || videoElement.ended) {
+                  finishClip();
+                  return;
+                }
+
+                // Draw composite frame: base video + annotations + watermark
+                renderer.renderFrame({
+                  clip: curClip,
+                  currentTime: timelineT,
+                  selectedAnnotationId: null,
+                  watermarkConfig: projectSession?.watermark,
+                  drawBaseVideo: true
+                });
+                publishFrame();
+
+                // Update progress bar
+                const currentOverallTime = accumulatedExportDuration + Math.max(0, timelineT - task.trimIn);
+                const percent = Math.min(99, Math.round((currentOverallTime / totalExportDuration) * 100));
+                const clipLabel = clipTasks.length > 1 ? ` [klip ${taskIdx + 1}/${clipTasks.length}]` : '';
+                onProgress(
+                  percent,
+                  `Rendering: ${TV.VideoEngine.formatDuration(currentOverallTime)} / ${TV.VideoEngine.formatDuration(totalExportDuration)} (${percent}%)${clipLabel}`
+                );
+              } finally {
+                drawing = false;
               }
             };
 
-            if ('requestVideoFrameCallback' in videoElement) {
-              videoElement.requestVideoFrameCallback(onFrame);
-            } else {
-              requestAnimationFrame(onFrame);
-            }
+            drawTimer = setInterval(drawTick, frameInterval);
           });
         }
 

@@ -477,7 +477,16 @@
       for (let i = 0; i < this.segments.length - 1; i++) {
         const seg = this.segments[i];
         const nextSeg = this.segments[i + 1];
-        if (sourceT >= seg.end - 0.04 && sourceT < nextSeg.start) {
+        const gapSize = nextSeg.start - seg.end;
+        // Only treat this as a jumpable gap if there is a real gap. A zero/near-zero
+        // gap (contiguous segments) must never trigger a jump, otherwise an imprecise
+        // seek can keep re-matching the same boundary and stall playback.
+        if (gapSize <= 0.02) continue;
+        // Enter the gap once we reach the end of this segment, but stop matching as
+        // soon as we are within a small epsilon of the next segment's start. Browser
+        // seeks snap to keyframes and can land just short of nextSeg.start; without
+        // this upper guard the jump would re-fire forever and the video would freeze.
+        if (sourceT >= seg.end - 0.04 && sourceT < nextSeg.start - 0.08) {
           return nextSeg.start;
         }
       }
