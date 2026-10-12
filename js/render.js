@@ -36,6 +36,23 @@
       this.canvas.height = this.height;
     }
 
+    /**
+     * Map a rectangle expressed in CANVAS coordinates (the space annotations are
+     * stored in = this.width x this.height) into the SOURCE pixel coordinates of
+     * the decoded <video> (video.videoWidth x videoHeight). drawImage() source
+     * rectangles must be in the video's intrinsic pixel space; when the video's
+     * resolution differs from the canvas, using canvas coords directly samples the
+     * wrong region (redaction misses its target / magnifier shows the wrong area).
+     * Falls back to an identity mapping when the video size isn't known yet.
+     */
+    _canvasRectToVideoRect(x, y, w, h) {
+      const vw = (this.video && this.video.videoWidth) || this.width;
+      const vh = (this.video && this.video.videoHeight) || this.height;
+      const sx = vw / (this.width || vw);
+      const sy = vh / (this.height || vh);
+      return { x: x * sx, y: y * sy, w: w * sx, h: h * sy };
+    }
+
     setZoomAndPan(zoom, panX, panY) {
       this.zoom = zoom;
       this.panX = panX;
@@ -61,24 +78,29 @@
 
       const annotations = clip.annotations || [];
 
-      // 1. First Pass: Render Redaction Filters (Blur / Pixelate / Blackout) on Video
-      for (const ann of annotations) {
-        if (ann.isActive(currentTime) && ann.type === 'redact') {
-          this._renderRedact(ctx, ann);
-        }
-      }
-
-      // 2. Second Pass: Render Spotlight / Dimmer (if active)
+      // 1. First Pass: Spotlight / Dimmer (view aid on the raw frame).
+      //    Rendered BEFORE redaction so a redaction box is never dimmed away.
       for (const ann of annotations) {
         if (ann.isActive(currentTime) && ann.type === 'spotlight') {
           this._renderSpotlight(ctx, ann);
         }
       }
 
-      // 3. Third Pass: Render Magnifier Loupe (if active)
+      // 2. Second Pass: Magnifier Loupe (view aid; samples the raw frame).
+      //    Rendered BEFORE redaction so a lens that overlaps a redaction cannot
+      //    re-expose the sensitive pixels — the redaction pass paints over it next.
       for (const ann of annotations) {
         if (ann.isActive(currentTime) && ann.type === 'magnifier') {
           this._renderMagnifier(ctx, ann);
+        }
+      }
+
+      // 3. Third Pass: Redaction Filters (Blur / Pixelate / Blackout).
+      //    MUST run after spotlight/magnifier so redaction always wins and sensitive
+      //    data stays covered regardless of overlapping view aids.
+      for (const ann of annotations) {
+        if (ann.isActive(currentTime) && ann.type === 'redact') {
+          this._renderRedact(ctx, ann);
         }
       }
 
@@ -287,8 +309,11 @@
         this.offscreenCanvas.height = smallH;
         this.offscreenCtx.imageSmoothingEnabled = false;
 
-        // Downsample video region
-        this.offscreenCtx.drawImage(this.video, x, y, w, h, 0, 0, smallW, smallH);
+        // Downsample the correct video region. Map the canvas-space box to the
+        // video's intrinsic pixel space so the redaction covers the intended area
+        // even when the decoded video resolution differs from the canvas.
+        const src = this._canvasRectToVideoRect(x, y, w, h);
+        this.offscreenCtx.drawImage(this.video, src.x, src.y, src.w, src.h, 0, 0, smallW, smallH);
 
         // Upsample back to main canvas
         ctx.imageSmoothingEnabled = false;
@@ -373,13 +398,22 @@
       ctx.ellipse(cx, cy, Math.max(1, rx), Math.max(1, ry), 0, 0, Math.PI * 2);
       ctx.clip();
 
-      // Draw magnified video
+      // Draw magnified video. The source region is expressed in canvas space and
+      // mapped to the video's intrinsic pixel space so the loupe shows the area it
+      // actually overlaps (correct even when video resolution != canvas size).
+      const srcCanvas = {
+        x: cx - (w / zoom) / 2,
+        y: cy - (h / zoom) / 2,
+        w: w / zoom,
+        h: h / zoom
+      };
+      const src = this._canvasRectToVideoRect(srcCanvas.x, srcCanvas.y, srcCanvas.w, srcCanvas.h);
       ctx.drawImage(
         this.video,
-        cx - (w / zoom) / 2,
-        cy - (h / zoom) / 2,
-        w / zoom,
-        h / zoom,
+        src.x,
+        src.y,
+        src.w,
+        src.h,
         x,
         y,
         w,

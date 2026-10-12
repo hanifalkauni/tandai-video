@@ -432,7 +432,7 @@
 
       // Double-click on text annotation to edit text
       canvas.addEventListener('dblclick', (e) => {
-        const pt = getCanvasPoint(e);
+        const pt = this._screenToCanvas(e);
         const clip = this.session.getActiveClip();
         if (!clip) return;
         const curT = this.videoEngine.currentTime;
