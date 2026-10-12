@@ -709,8 +709,14 @@
     removeClip(index) {
       if (index >= 0 && index < this.clips.length) {
         const [removed] = this.clips.splice(index, 1);
+        // Only revoke the object URL if NO remaining clip still references it.
+        // Splitting a clip (and clone()) makes two clips share one blobUrl, so an
+        // unconditional revoke here would break the surviving clip's <video>.
         if (removed && removed.blobUrl) {
-          URL.revokeObjectURL(removed.blobUrl);
+          const stillUsed = this.clips.some((c) => c.blobUrl === removed.blobUrl);
+          if (!stillUsed) {
+            URL.revokeObjectURL(removed.blobUrl);
+          }
         }
         if (this.activeClipIndex >= this.clips.length) {
           this.activeClipIndex = Math.max(0, this.clips.length - 1);
