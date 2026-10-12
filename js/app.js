@@ -67,6 +67,16 @@
       this._bindDropzoneEvents();
       this._loadDraftFromStorage();
 
+      // Flush any pending (debounced) draft write before the tab closes so the last
+      // edit isn't lost within the debounce window.
+      window.addEventListener('beforeunload', () => {
+        if (this._draftSaveTimer) {
+          clearTimeout(this._draftSaveTimer);
+          this._draftSaveTimer = null;
+          this._writeDraftNow();
+        }
+      });
+
       this._startRenderLoop();
       this.showToast('Selamat datang di tandai-video!', 'info');
     }
@@ -2063,11 +2073,28 @@
     }
 
     _saveDraftToStorage() {
+      // Debounced: callers fire this on every keystroke/slider tick/drag. Writing the
+      // whole project JSON synchronously on each event causes visible jank and burns
+      // through the localStorage quota. Coalesce rapid calls into one write.
+      if (this._draftSaveTimer) clearTimeout(this._draftSaveTimer);
+      this._draftSaveTimer = setTimeout(() => {
+        this._draftSaveTimer = null;
+        this._writeDraftNow();
+      }, 600);
+    }
+
+    _writeDraftNow() {
       try {
         const draft = this.session.toJSON();
         localStorage.setItem('tandai_video_draft', JSON.stringify(draft));
       } catch (e) {
-        // LocalStorage quota may be exceeded
+        // Most likely QuotaExceededError on large projects. Tell the user once instead
+        // of failing silently, so they know the draft is not being saved.
+        const isQuota = e && (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014);
+        if (isQuota && !this._draftQuotaWarned) {
+          this._draftQuotaWarned = true;
+          this.showToast('Proyek terlalu besar untuk disimpan otomatis. Simpan berkas proyek secara manual (Ekspor/Simpan Proyek).', 'warning');
+        }
       }
     }
 
@@ -2077,13 +2104,33 @@
 
       try {
         const savedDraft = localStorage.getItem('tandai_video_draft');
-        if (savedDraft) {
-          const data = JSON.parse(savedDraft);
-          if (data.project?.watermark) {
-            this.session.watermark = Object.assign(this.session.watermark, data.project.watermark);
+        if (!savedDraft) return;
+        const data = JSON.parse(savedDraft);
+        if (!data || !data.project) return;
+
+        // Rehydrate the full session (clips, annotations, segments, trims, watermark).
+        // The video file itself is never stored, so clips come back without a blobUrl
+        // and the user is asked to relink the original video to resume editing.
+        if (Array.isArray(data.project.clips) && data.project.clips.length > 0) {
+          this.session = new TV.ProjectSession(data.project);
+          this.selectedAnnotationId = null;
+          this.timeline.render({
+            projectSession: this.session,
+            currentTime: 0,
+            selectedAnnotationId: null
+          });
+          this._updateInspector();
+          const first = this.session.getActiveClip();
+          if (first && !first.blobUrl) {
+            this._requestRelink(first);
           }
+        } else if (data.project.watermark) {
+          // No clips saved — just restore watermark preferences.
+          this.session.watermark = Object.assign(this.session.watermark, data.project.watermark);
         }
-      } catch (e) {}
+      } catch (e) {
+        // Corrupt draft — ignore and start fresh.
+      }
     }
 
     showToast(message, type = 'info') {
