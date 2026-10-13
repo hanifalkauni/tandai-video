@@ -46,6 +46,11 @@
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#dc2626" stroke-width="2"><circle cx="12" cy="12" r="8" fill="#dc2626"/></svg>
           <span>Rekam Layar</span>
         </button>
+
+        <button class="btn btn-ghost btn-sm" id="headerResetBtn" title="Reset: hapus video & semua anotasi, mulai dari kosong">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 2v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg>
+          <span>Reset</span>
+        </button>
       </div>
 
       <div class="header-center">
@@ -662,12 +667,16 @@
   <!-- Third-party: MP4Box.js (vendored, offline) — remuxes fragmented MediaRecorder MP4
        into a seekable progressive MP4 so exported files can be scrubbed in VLC/WMP. -->
   <script src="js/vendor/mp4box.all.min.js?v=0.5.2"></script>
+  <!-- Third-party: mp4-muxer (vendored, offline) — writes the non-fragmented,
+       seekable MP4 from the remuxed samples. -->
+  <script src="js/vendor/mp4-muxer.min.js?v=5.1.5"></script>
   <!-- JavaScript Modules in Dependency Order -->
-  <script src="js/export.js?v=1.3.14"></script>
-  <script src="js/model.js?v=1.3.14"></script>
-  <script src="js/video-engine.js?v=1.3.14"></script>
-  <script src="js/render.js?v=1.3.14"></script>
-  <script src="js/timeline.js?v=1.3.14"></script>
-  <script src="js/app.js?v=1.3.14"></script>
+  <script src="js/storage.js?v=1.3.15"></script>
+  <script src="js/export.js?v=1.3.15"></script>
+  <script src="js/model.js?v=1.3.15"></script>
+  <script src="js/video-engine.js?v=1.3.15"></script>
+  <script src="js/render.js?v=1.3.15"></script>
+  <script src="js/timeline.js?v=1.3.15"></script>
+  <script src="js/app.js?v=1.3.15"></script>
 </body>
 </html>

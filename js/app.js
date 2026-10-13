@@ -1514,6 +1514,9 @@
       this._dom.recordBtn?.addEventListener('click', () => this.startScreenRecording());
       document.getElementById('headerRecordBtn')?.addEventListener('click', () => this.startScreenRecording());
 
+      // Reset (clear everything to start over / swap video)
+      document.getElementById('headerResetBtn')?.addEventListener('click', () => this.resetProject());
+
       // Playback Controls bindings
       this._dom.playPauseBtn.addEventListener('click', () => this.videoEngine.togglePlay());
       this._dom.prevFrameBtn.addEventListener('click', () => this.videoEngine.stepFrame(-1));
@@ -1542,6 +1545,9 @@
           this.videoEngine.setActiveClip(relinkClip);
           this.videoEngine.setPlaybackBounds(relinkClip.trimIn, relinkClip.trimOut);
           this.videoEngine.currentTime = relinkClip.trimIn || 0;
+          // Persist so the next reload restores this video automatically (no relink).
+          this._persistClipMedia(relinkClip, file);
+          this._saveDraftToStorage();
           this.showToast('Proyek dipulihkan: video, anotasi & batas START/END dimuat.', 'success');
           return;
         }
@@ -1558,10 +1564,83 @@
         this.videoEngine.setActiveClip(clip);
         this.videoEngine.setPlaybackBounds(clip.trimIn, clip.trimOut);
         this.videoEngine.currentTime = clip.trimIn || 0;
+        // Persist the video blob to IndexedDB (keyed by clip id) so a reload can
+        // restore it without asking the user to pick the file again.
+        this._persistClipMedia(clip, file);
+        this._saveDraftToStorage();
         this.showToast('Video berhasil dimuat!', 'success');
       } catch (err) {
         this.showToast(`Gagal memuat video: ${err.message}`, 'error');
       }
+    }
+
+    /**
+     * Store a clip's video blob in IndexedDB under the clip id. Best-effort: if
+     * IndexedDB is unavailable or the write fails (e.g. quota exceeded on a very large
+     * video), warn once and continue — the session still works this run, and reload
+     * will fall back to the relink prompt.
+     */
+    async _persistClipMedia(clip, blob) {
+      if (!clip || !blob || !TV.MediaStore) return;
+      try {
+        const ok = await TV.MediaStore.put(clip.id, blob);
+        if (!ok && !this._mediaStoreWarned) {
+          this._mediaStoreWarned = true;
+          this.showToast('Video tidak dapat disimpan untuk pemulihan otomatis (mungkin terlalu besar). Simpan berkas proyek secara manual.', 'warning');
+        }
+      } catch (e) {
+        console.warn('Failed to persist clip media to IndexedDB:', e);
+      }
+    }
+
+    /**
+     * Reset the whole workspace to an empty state: removes the video and ALL
+     * annotations/trims/cuts, clears the saved draft and the IndexedDB-stored videos,
+     * and returns to the dropzone. Used when the user wants to start over or swap the
+     * source video. Destructive, so it asks for confirmation first.
+     */
+    async resetProject() {
+      const hasContent = this.session && this.session.clips && this.session.clips.length > 0;
+      if (hasContent) {
+        const ok = window.confirm(
+          'Reset akan menghapus video dan SEMUA anotasi, trim, serta potongan dari sesi ini (termasuk draft tersimpan). Lanjutkan?'
+        );
+        if (!ok) return;
+      }
+
+      try { this.videoEngine.pause(); } catch (e) {}
+      this._resetPerClipState();
+
+      // Cancel any pending debounced draft write and clear persisted state.
+      if (this._draftSaveTimer) { clearTimeout(this._draftSaveTimer); this._draftSaveTimer = null; }
+      try { localStorage.removeItem('tandai_video_draft'); } catch (e) {}
+      if (TV.MediaStore) { try { await TV.MediaStore.clear(); } catch (e) {} }
+
+      // Revoke every clip's object URL (reference-safe: distinct URLs only).
+      const revoked = new Set();
+      for (const c of (this.session.clips || [])) {
+        if (c.blobUrl && !revoked.has(c.blobUrl)) {
+          revoked.add(c.blobUrl);
+          try { URL.revokeObjectURL(c.blobUrl); } catch (e) {}
+        }
+      }
+
+      // Fresh empty session (preserve the user's watermark preferences).
+      const keepWatermark = this.session ? this.session.watermark : null;
+      this.session = new TV.ProjectSession(keepWatermark ? { watermark: keepWatermark } : {});
+      this.selectedAnnotationId = null;
+      this.pendingRelinkClip = null;
+
+      // Reset engine + UI to the empty/dropzone state.
+      try { this.videoEngine.setActiveClip(null); } catch (e) {}
+      this.videoEngine.setPlaybackBounds(0, null);
+      this._resetDropzoneText();
+      this._dom.emptyDropzone.hidden = false;
+      this.timeline.render({ projectSession: this.session, currentTime: 0, selectedAnnotationId: null });
+      this._updatePlaybackUI();
+      this._updateInspector();
+
+      this.showToast('Sesi direset. Silakan buka atau rekam video baru.', 'success');
     }
 
     async startScreenRecording() {
@@ -1681,7 +1760,24 @@
     async removeClip(index) {
       this.videoEngine.pause();
       this._resetPerClipState();
+
+      // Capture the clip being removed so we can clean up its persisted media after
+      // it leaves the session.
+      const removed = (this.session.clips && index >= 0 && index < this.session.clips.length)
+        ? this.session.clips[index] : null;
+
       this.session.removeClip(index);
+
+      // Delete the removed clip's IndexedDB video, but only if no remaining clip shares
+      // the same underlying media (split clips share one blobUrl across distinct ids).
+      if (removed && TV.MediaStore) {
+        const stillUsed = this.session.clips.some((c) => c.blobUrl && c.blobUrl === removed.blobUrl);
+        if (!stillUsed) {
+          try { await TV.MediaStore.delete(removed.id); } catch (e) {}
+        }
+      }
+      this._saveDraftToStorage();
+
       const clip = this.session.getActiveClip();
       if (clip && clip.blobUrl) {
         await this.switchClip(this.session.activeClipIndex);
@@ -2121,7 +2217,7 @@
       }
     }
 
-    _loadDraftFromStorage() {
+    async _loadDraftFromStorage() {
       const savedTheme = localStorage.getItem('tandai_video_theme') || 'dark';
       document.documentElement.setAttribute('data-theme', savedTheme);
 
@@ -2132,8 +2228,6 @@
         if (!data || !data.project) return;
 
         // Rehydrate the full session (clips, annotations, segments, trims, watermark).
-        // The video file itself is never stored, so clips come back without a blobUrl
-        // and the user is asked to relink the original video to resume editing.
         if (Array.isArray(data.project.clips) && data.project.clips.length > 0) {
           this.session = new TV.ProjectSession(data.project);
           this.selectedAnnotationId = null;
@@ -2143,9 +2237,51 @@
             selectedAnnotationId: null
           });
           this._updateInspector();
+
           const first = this.session.getActiveClip();
           if (first && !first.blobUrl) {
-            this._requestRelink(first);
+            // Try to restore the video from IndexedDB (keyed by clip id) so the user
+            // resumes exactly where they left off — no relink needed. Restore blobs
+            // for ALL clips in the session, then load the active one.
+            let restoredActive = false;
+            if (TV.MediaStore) {
+              for (const c of this.session.clips) {
+                try {
+                  const blob = await TV.MediaStore.get(c.id);
+                  if (blob) {
+                    c.file = blob;
+                    c.blobUrl = URL.createObjectURL(blob);
+                  }
+                } catch (e) {
+                  console.warn('Failed to restore clip media from IndexedDB:', e);
+                }
+              }
+              const active = this.session.getActiveClip();
+              if (active && active.blobUrl) {
+                try {
+                  this._resetDropzoneText();
+                  this._dom.emptyDropzone.hidden = true;
+                  await this.videoEngine.loadSource(active.blobUrl);
+                  this.videoEngine.setActiveClip(active);
+                  this.videoEngine.setPlaybackBounds(active.trimIn, active.trimOut);
+                  this.videoEngine.currentTime = active.trimIn || 0;
+                  this.timeline.render({
+                    projectSession: this.session,
+                    currentTime: active.trimIn || 0,
+                    selectedAnnotationId: null
+                  });
+                  this._updatePlaybackUI();
+                  restoredActive = true;
+                  this.showToast('Sesi dipulihkan: video & anotasi dimuat otomatis.', 'success');
+                } catch (e) {
+                  console.warn('Failed to load restored video source:', e);
+                }
+              }
+            }
+            // Couldn't restore the video (not stored, cleared, or too large) -> relink.
+            if (!restoredActive) {
+              this._requestRelink(first);
+            }
           }
         } else if (data.project.watermark) {
           // No clips saved — just restore watermark preferences.
