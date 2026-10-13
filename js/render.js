@@ -34,6 +34,23 @@
       this.height = height || 1080;
       this.canvas.width = this.width;
       this.canvas.height = this.height;
+      // Logical space == physical canvas by default.
+      this._physW = this.canvas.width;
+      this._physH = this.canvas.height;
+    }
+
+    /**
+     * Set the LOGICAL coordinate space (annotation/video space) WITHOUT resizing the
+     * physical canvas. Used during multi-clip export where the recorder is locked to
+     * one physical canvas size but each clip's annotations live in that clip's own
+     * native resolution. renderFrame() then scales the logical space onto the fixed
+     * physical canvas so every clip's annotations land in the right place.
+     */
+    setLogicalDimensions(width, height) {
+      this.width = width || this.width;
+      this.height = height || this.height;
+      this._physW = this.canvas.width;
+      this._physH = this.canvas.height;
     }
 
     /**
@@ -67,7 +84,16 @@
       const w = this.width;
       const h = this.height;
 
-      ctx.clearRect(0, 0, w, h);
+      // Clear the whole physical canvas (which may be larger/smaller than the logical
+      // space during multi-clip export), then scale the logical space to fill it.
+      const physW = this._physW || this.canvas.width;
+      const physH = this._physH || this.canvas.height;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, physW, physH);
+      this._scaledForLogical = (physW !== w || physH !== h) && w > 0 && h > 0;
+      if (this._scaledForLogical) {
+        ctx.setTransform(physW / w, 0, 0, physH / h, 0, 0);
+      }
 
       // Draw base video frame if requested (e.g. during video export or snapshot)
       if (drawBaseVideo && this.video) {
@@ -130,6 +156,13 @@
       // 7. Seventh Pass: Evidence Watermark & Burn-in Timecode
       if (watermarkConfig && (watermarkConfig.ticket || watermarkConfig.author || watermarkConfig.showTimecode !== false)) {
         this._renderWatermark(ctx, watermarkConfig, currentTime, clip.fps || 30);
+      }
+
+      // Reset any logical-space scale transform so later direct canvas reads/writes
+      // (snapshot capture, etc.) operate in physical pixels.
+      if (this._scaledForLogical) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        this._scaledForLogical = false;
       }
     }
 

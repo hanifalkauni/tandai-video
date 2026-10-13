@@ -570,6 +570,7 @@
           // otherwise drawImage() copies a blank/black buffer into the canvas and the
           // export opens with a few black frames before real pixels arrive.
           await waitForVideoFrame(videoElement);
+          renderer.setLogicalDimensions(firstTask.clip.width || width, firstTask.clip.height || height);
           renderer.renderFrame({
             clip: firstTask.clip,
             currentTime: firstTask.trimIn,
@@ -594,6 +595,12 @@
             }
             await useSource(curClip.blobUrl);
           }
+
+          // The recorder is locked to one physical canvas size, but each clip's
+          // annotations live in that clip's own native resolution. Set the renderer's
+          // LOGICAL space to this clip so its annotations map correctly onto the fixed
+          // canvas (handles mixed-resolution multi-clip projects).
+          renderer.setLogicalDimensions(curClip.width || width, curClip.height || height);
 
           const startSourceT = curClip.timelineToSourceTime(task.trimIn);
           await seekVideo(startSourceT);

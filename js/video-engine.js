@@ -94,6 +94,17 @@
         this._pendingJumpTarget = null;
         return false;
       }
+      // Don't jump past the trim-out boundary. If the target (converted to timeline
+      // time) is at/after trimOut, the boundary check owns this edge — let it run.
+      const bounds = this.playbackBounds;
+      if (bounds && typeof bounds.trimOut === 'number' && bounds.trimOut > 0 &&
+          typeof this.activeClip.sourceToTimelineTime === 'function') {
+        const jumpTimelineT = this.activeClip.sourceToTimelineTime(jumpTo);
+        if (jumpTimelineT >= bounds.trimOut - 0.03) {
+          this._pendingJumpTarget = null;
+          return false;
+        }
+      }
       // Already resolved this gap (we're at/past the target) -> let playback continue.
       if (this.video.currentTime >= jumpTo - EPS) {
         this._pendingJumpTarget = null;
@@ -169,10 +180,11 @@
       this.video.addEventListener('timeupdate', () => {
         if (this.suspended) return;
         if (this.isPlaying) {
+          // Boundary check first so reaching trimOut always wins over a cut-gap jump.
+          // This avoids the two automations interleaving near a gap that coincides
+          // with the trim-out edge (1-frame stutter / early pause on cut clips).
+          if (this._checkPlaybackBoundary()) return;
           if (this._handleCutGapJump()) return;
-          if (this._checkPlaybackBoundary()) {
-            return;
-          }
         }
         this._emit('timeupdate', { currentTime: this.currentTime, duration: this.duration });
       });
@@ -189,12 +201,11 @@
       const onFrame = (now, metadata) => {
         if (!this.isPlaying || this.suspended) return;
 
-        // Jump over cut gaps seamlessly
-        if (this._handleCutGapJump()) return;
-
+        // Boundary first (reaching trimOut wins over a gap jump), then skip cut gaps.
         if (this._checkPlaybackBoundary()) {
           return;
         }
+        if (this._handleCutGapJump()) return;
 
         this._emit('timeupdate', {
           currentTime: this.currentTime,

@@ -195,6 +195,10 @@
 
       this.timeline.on('trimChange', ({ trimIn, trimOut }) => {
         this.videoEngine.setPlaybackBounds(trimIn, trimOut);
+        // Record a history snapshot so trim (START/END) changes are undoable and
+        // aren't silently reverted by an unrelated undo.
+        const clip = this.session.getActiveClip();
+        if (clip) clip.saveHistorySnapshot();
         this._saveDraftToStorage();
       });
 
@@ -1317,11 +1321,13 @@
           if (clip) {
             clip.trimIn = this.videoEngine.currentTime;
             this.videoEngine.setPlaybackBounds(clip.trimIn, clip.trimOut);
+            clip.saveHistorySnapshot();
             this.timeline.render({
               projectSession: this.session,
               currentTime: this.videoEngine.currentTime,
               selectedAnnotationId: this.selectedAnnotationId
             });
+            this._saveDraftToStorage();
             this.showToast(`Set Batas Mulai (START): ${TV.VideoEngine.formatDuration(clip.trimIn)}`, 'info');
           }
         } else if (key === 'o') {
@@ -1329,11 +1335,13 @@
           if (clip) {
             clip.trimOut = this.videoEngine.currentTime;
             this.videoEngine.setPlaybackBounds(clip.trimIn, clip.trimOut);
+            clip.saveHistorySnapshot();
             this.timeline.render({
               projectSession: this.session,
               currentTime: this.videoEngine.currentTime,
               selectedAnnotationId: this.selectedAnnotationId
             });
+            this._saveDraftToStorage();
             this.showToast(`Set Batas Akhir (END): ${TV.VideoEngine.formatDuration(clip.trimOut)}`, 'info');
           }
         } else if (isCtrl && key === 'c') {
@@ -1615,9 +1623,23 @@
       }
     }
 
+    /**
+     * Clear UI state tied to the previously active clip so it doesn't leak across a
+     * clip switch/removal: commit+close the inline text editor, drop the selection,
+     * and force-close ripple-cut mode (whose cutStart/cutEnd belong to the old clip).
+     */
+    _resetPerClipState() {
+      try { this.commitInlineTextEditor(); } catch (e) {}
+      this.selectedAnnotationId = null;
+      if (this.timeline && this.timeline.isCutMode) {
+        this.timeline.toggleCutMode(false);
+      }
+    }
+
     async switchClip(index) {
       if (index < 0 || index >= this.session.clips.length) return;
       this.videoEngine.pause();
+      this._resetPerClipState();
       this.session.activeClipIndex = index;
       const clip = this.session.getActiveClip();
       if (!clip) return;
@@ -1658,6 +1680,7 @@
 
     async removeClip(index) {
       this.videoEngine.pause();
+      this._resetPerClipState();
       this.session.removeClip(index);
       const clip = this.session.getActiveClip();
       if (clip && clip.blobUrl) {
