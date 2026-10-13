@@ -261,6 +261,21 @@
       this.style.strokeColor = '#ffffff';
     }
 
+    /**
+     * Hit-test against the DRAWN circle, not the stored bbox. The renderer draws the
+     * badge with radius max(16, width/2) centered at (x + r, y + r); for small badges
+     * that circle is larger than width/height, so the base rectangular hitTest made
+     * the edges hard to click. Match the visible badge here.
+     */
+    hitTest(px, py, t) {
+      if (!this.isActive(t)) return false;
+      const r = Math.max(16, (this.width || 32) / 2);
+      const cx = this.x + r;
+      const cy = this.y + r;
+      const pad = 4;
+      return Math.hypot(px - cx, py - cy) <= r + pad;
+    }
+
     toJSON() {
       const obj = super.toJSON();
       obj.stepNumber = this.stepNumber;

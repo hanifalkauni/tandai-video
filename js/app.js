@@ -2152,7 +2152,8 @@
           this.session.watermark = Object.assign(this.session.watermark, data.project.watermark);
         }
       } catch (e) {
-        // Corrupt draft — ignore and start fresh.
+        // Corrupt/unreadable draft — start fresh, but surface it for debugging.
+        console.warn('Failed to load saved draft; starting fresh:', e);
       }
     }
 

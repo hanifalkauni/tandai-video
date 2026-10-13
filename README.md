@@ -127,6 +127,14 @@ tandai-video/
 
 ---
 
+## ⚠️ Catatan Keterbatasan
+
+- **Seek pada hasil ekspor**: Ekspor **MP4** (AVC/H.264 + AAC, umumnya di Chromium/Edge) otomatis di-*remux* menjadi MP4 progresif sehingga bisa di-*scrub*/seek di pemutar eksternal (VLC, Windows Media Player). Ekspor **WebM** (mis. pada Firefox) **tidak** di-remux; file tetap bisa diputar penuh tapi mungkin tidak bisa di-seek di sebagian pemutar eksternal. Untuk hasil paling kompatibel, gunakan peramban yang menghasilkan MP4.
+- **Bitrate ekspor adaptif**: Bitrate dihitung otomatis dari resolusi × frame rate (±0,1 bit/piksel/frame, dibatasi 1,5–12 Mbps), bukan nilai tetap. Karena ekspor adalah *re-encode* dari kanvas (bukan menyalin stream asli), ukuran berkas hasil bisa berbeda dari sumber.
+- **Relink video setelah reload**: Draft otomatis menyimpan anotasi, trim, dan potongan ke penyimpanan lokal, tetapi **berkas video tidak disimpan**. Setelah me-reload halaman, Anda akan diminta memilih kembali file video asli untuk melanjutkan.
+
+---
+
 ## 📄 Lisensi
 
 [MIT License](LICENSE) © 2026 Hanif Al-Kauni

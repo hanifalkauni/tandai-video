@@ -407,7 +407,28 @@
     /* --------------------------------------------------------------------------
        Update & Render Timeline View
        -------------------------------------------------------------------------- */
-    render({ projectSession, currentTime, selectedAnnotationId }) {
+    /**
+     * Public render entry point. Coalesces bursts of rapid calls (live drags, typing,
+     * draft saves) into a single DOM rebuild per animation frame, since _renderNow()
+     * rebuilds the whole ruler/tracks/playlist. The latest params win.
+     */
+    render(params) {
+      if (!params || !params.projectSession) return;
+      // Keep _currentClip in sync synchronously so handlers that read it right after
+      // a render() call (cut/trim drag) see the active clip even though the DOM
+      // rebuild is deferred to the next frame.
+      this._currentClip = params.projectSession.getActiveClip();
+      this._pendingRenderParams = params;
+      if (this._renderRafId) return;
+      this._renderRafId = requestAnimationFrame(() => {
+        this._renderRafId = null;
+        const p = this._pendingRenderParams;
+        this._pendingRenderParams = null;
+        if (p) this._renderNow(p);
+      });
+    }
+
+    _renderNow({ projectSession, currentTime, selectedAnnotationId }) {
       if (!projectSession) return;
       this._lastRenderParams = { projectSession, currentTime, selectedAnnotationId: selectedAnnotationId ?? this.selectedAnnotationId };
       const clip = projectSession.getActiveClip();
@@ -512,11 +533,15 @@
         const t = i * step;
         const px = this._timeToPx(t);
 
+        // A tick is "major"/labeled when it lands on a whole second, so bold ticks
+        // line up with the second labels regardless of the sub-second step size.
+        const isWholeSecond = Math.abs(t - Math.round(t)) < 1e-6;
+
         const tick = document.createElement('div');
-        tick.className = `ruler-tick ${i % 2 === 0 ? 'major' : ''}`;
+        tick.className = `ruler-tick ${isWholeSecond ? 'major' : ''}`;
         tick.style.left = `${px}px`;
 
-        if (i % (step < 1 ? 2 : 1) === 0) {
+        if (isWholeSecond) {
           const label = document.createElement('div');
           label.className = 'ruler-label';
           label.style.left = `${px + 3}px`;

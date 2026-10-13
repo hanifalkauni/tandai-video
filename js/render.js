@@ -322,10 +322,13 @@
        Redaction Renderers (Blur, Pixelate, Blackout)
        -------------------------------------------------------------------------- */
     _renderRedact(ctx, ann) {
+      // Round the edges (not width/height independently) so x+w and y+h stay
+      // consistent — otherwise round(x)+round(w) can differ from round(x+w) and leave
+      // a 1px uncovered sliver on the right/bottom edge of a redaction box.
       const x = Math.round(ann.x);
       const y = Math.round(ann.y);
-      const w = Math.round(ann.width);
-      const h = Math.round(ann.height);
+      const w = Math.round(ann.x + ann.width) - x;
+      const h = Math.round(ann.y + ann.height) - y;
       if (w <= 0 || h <= 0) return;
 
       ctx.save();
@@ -387,20 +390,22 @@
       ctx.save();
       const opacity = typeof ann.dimmerOpacity === 'number' ? ann.dimmerOpacity : 0.7;
 
-      // Fill entire screen with dark dimmer mask
+      // Fill entire screen with dark dimmer mask, then punch the focal hole using the
+      // even-odd fill rule. Even-odd reliably subtracts the inner sub-path regardless
+      // of winding direction (the old "negative width" trick could fail to cut).
       ctx.fillStyle = `rgba(0, 0, 0, ${opacity})`;
       ctx.beginPath();
       ctx.rect(0, 0, this.width, this.height);
 
-      // Cut out focal spotlight hole
+      // Cut out focal spotlight hole (inner sub-path)
       if (ann.shape === 'rectangle') {
-        ctx.rect(ann.x + ann.width, ann.y, -ann.width, ann.height);
+        ctx.rect(ann.x, ann.y, ann.width, ann.height);
       } else {
         const rx = ann.width / 2;
         const ry = ann.height / 2;
-        ctx.ellipse(ann.x + rx, ann.y + ry, Math.max(0.1, rx), Math.max(0.1, ry), 0, 0, Math.PI * 2, true);
+        ctx.ellipse(ann.x + rx, ann.y + ry, Math.max(0.1, rx), Math.max(0.1, ry), 0, 0, Math.PI * 2);
       }
-      ctx.fill();
+      ctx.fill('evenodd');
 
       // Glowing border on cutout
       ctx.strokeStyle = 'rgba(79, 140, 255, 0.8)';
@@ -445,12 +450,21 @@
         h: h / zoom
       };
       const src = this._canvasRectToVideoRect(srcCanvas.x, srcCanvas.y, srcCanvas.w, srcCanvas.h);
+      // Clamp the source rect to the video's intrinsic bounds so a lens near a frame
+      // edge doesn't sample outside the video (which renders as blank/smeared pixels).
+      const vw = (this.video && this.video.videoWidth) || this.width;
+      const vh = (this.video && this.video.videoHeight) || this.height;
+      let sX = Math.max(0, Math.min(src.x, vw));
+      let sY = Math.max(0, Math.min(src.y, vh));
+      let sW = Math.min(src.w, vw - sX);
+      let sH = Math.min(src.h, vh - sY);
+      if (sW <= 0 || sH <= 0) { sX = src.x; sY = src.y; sW = Math.max(1, src.w); sH = Math.max(1, src.h); }
       ctx.drawImage(
         this.video,
-        src.x,
-        src.y,
-        src.w,
-        src.h,
+        sX,
+        sY,
+        sW,
+        sH,
         x,
         y,
         w,
@@ -532,21 +546,28 @@
       if (config.showTimecode !== false) lines.push(`TIMECODE: ${timecode}`);
       lines.push(`STAMP: ${nowStr}`);
 
-      ctx.font = '600 11px ui-monospace, SFMono-Regular, Menlo, monospace';
-      const lineHeight = 16;
+      // Scale the watermark with the output resolution (baseline 1080p => 11px) so it
+      // stays legible on 4K and doesn't dominate low-res exports. Clamped to a sane range.
+      const scale = Math.max(0.6, Math.min(3, (this.height || 1080) / 1080));
+      const fontSize = Math.round(11 * scale);
+      const lineHeight = Math.round(16 * scale);
+      const padX = Math.round(10 * scale);
+      const padY = Math.round(8 * scale);
+      const margin = Math.round(16 * scale);
+
+      ctx.font = `600 ${fontSize}px ui-monospace, SFMono-Regular, Menlo, monospace`;
       let maxW = 0;
       lines.forEach(l => {
         const w = ctx.measureText(l).width;
         if (w > maxW) maxW = w;
       });
 
-      const padX = 10, padY = 8;
       const boxW = maxW + padX * 2;
       const boxH = lines.length * lineHeight + padY * 2;
 
-      let x = 16, y = 16;
-      if (pos.includes('right')) x = this.width - boxW - 16;
-      if (pos.includes('bottom')) y = this.height - boxH - 16;
+      let x = margin, y = margin;
+      if (pos.includes('right')) x = this.width - boxW - margin;
+      if (pos.includes('bottom')) y = this.height - boxH - margin;
 
       // Dark translucent pill
       ctx.fillStyle = 'rgba(15, 17, 23, 0.85)';

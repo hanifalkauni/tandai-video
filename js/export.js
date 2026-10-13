@@ -430,10 +430,22 @@
       }
     }
 
+    // Adaptive bitrate: scale with resolution and frame rate instead of a fixed
+    // 6 Mbps, so small/low-res videos aren't bloated and 4K isn't starved. ~0.1 bits
+    // per pixel per frame suits screen recordings; clamped to a sane 1.5–12 Mbps.
+    const computeBitrate = () => {
+      if (options.bitrate) return options.bitrate;
+      const bpp = 0.1;
+      const raw = Math.round(width * height * targetFps * bpp);
+      return Math.max(1_500_000, Math.min(12_000_000, raw));
+    };
+    const videoBitsPerSecond = computeBitrate();
+    TV.exportLog('bitrate.selected', { videoBitsPerSecond, width, height, targetFps });
+
     const recordedChunks = [];
     const recorder = new MediaRecorder(stream, {
       mimeType,
-      videoBitsPerSecond: options.bitrate || 6000000 // 6 Mbps
+      videoBitsPerSecond
     });
 
     recorder.ondataavailable = (e) => {
@@ -549,7 +561,9 @@
           videoElement.muted = initialMuted;
           videoElement.volume = initialVolume;
           videoElement.currentTime = initialTime;
-        } catch (e) {}
+        } catch (e) {
+          console.warn('Failed to restore video element state after export:', e);
+        }
       };
 
       try {
